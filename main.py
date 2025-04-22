@@ -60,8 +60,7 @@ class SnippingWidget(QtWidgets.QWidget):
         img = ImageGrab.grab(bbox=(x1, y1, x2, y2))
         text = pytesseract.image_to_string(img, lang="eng")
 
-        print("\n🔍 Texto capturado:")
-        print("--------------------------------")
+        print("\n🔍 Texto capturado: ")
         print(text.strip())
 
         if text.strip():
@@ -70,12 +69,9 @@ class SnippingWidget(QtWidgets.QWidget):
                     text
                 )
                 print("\n🌐 Tradução:")
-                print("--------------------------------")
                 print(translated.strip())
             except Exception as e:
                 print("\n[ERRO AO TRADUZIR]:", e)
-
-        print("\n✅ Pronto para nova captura (F8)")
 
 
 def start_snip():
