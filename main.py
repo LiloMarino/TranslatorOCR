@@ -3,11 +3,19 @@ import sys
 import keyboard
 import pytesseract
 from deep_translator import GoogleTranslator
-from PIL import ImageGrab
+from PIL import Image, ImageEnhance, ImageFilter, ImageGrab
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 # Defina o caminho do Tesseract se necessário
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
+
+def preprocess_image(img):
+    img = img.convert("L")  # grayscale
+    img = img.filter(ImageFilter.SHARPEN)
+    enhancer = ImageEnhance.Contrast(img)
+    img = enhancer.enhance(2.0)  # aumentar contraste
+    return img
 
 
 class SnippingWidget(QtWidgets.QWidget):
@@ -58,7 +66,8 @@ class SnippingWidget(QtWidgets.QWidget):
 
     def capture(self, x1, y1, x2, y2):
         img = ImageGrab.grab(bbox=(x1, y1, x2, y2))
-        text = pytesseract.image_to_string(img, lang="eng")
+        processed = preprocess_image(img)
+        text = pytesseract.image_to_string(processed, lang="eng")
 
         print("\n🔍 Texto capturado: ")
         print(text.strip())
