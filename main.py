@@ -1,13 +1,13 @@
 import sys
 
+import easyocr
 import keyboard
-import pytesseract
+import numpy as np
 from deep_translator import GoogleTranslator
 from PIL import Image, ImageEnhance, ImageFilter, ImageGrab
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-# Defina o caminho do Tesseract se necessário
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+reader = easyocr.Reader(["en"], gpu=False)  # Você pode ativar GPU se quiser
 
 
 def preprocess_image(img):
@@ -67,15 +67,18 @@ class SnippingWidget(QtWidgets.QWidget):
     def capture(self, x1, y1, x2, y2):
         img = ImageGrab.grab(bbox=(x1, y1, x2, y2))
         processed = preprocess_image(img)
-        text = pytesseract.image_to_string(processed, lang="eng")
+        img_np = np.array(processed)
 
-        print("\n🔍 Texto capturado: ")
-        print(text.strip())
+        results = reader.readtext(img_np)
+        full_text = " ".join([text for _, text, _ in results])
 
-        if text.strip():
+        print("\n🔍 Texto capturado:")
+        print(full_text.strip())
+
+        if full_text.strip():
             try:
                 translated = GoogleTranslator(source="auto", target="pt").translate(
-                    text
+                    full_text
                 )
                 print("\n🌐 Tradução:")
                 print(translated.strip())
