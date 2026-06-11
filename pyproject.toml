@@ -1,0 +1,19 @@
+[project]
+name = "translatorocr"
+version = "0.1.0"
+description = "OCR e tradução com captura de tela e clipboard"
+requires-python = ">=3.13"
+dependencies = [
+    "deep-translator>=1.11.4",
+    "easyocr>=1.7.2",
+    "keyboard>=0.13.5",
+    "numpy>=2.4.6",
+    "pillow>=12.2.0",
+    "pyperclip>=1.11.0",
+    "PyQt5>=5.15; sys_platform == 'win32' and platform_machine == 'AMD64'",
+]
+
+[tool.uv]
+required-environments = [
+    "sys_platform == 'win32' and platform_machine == 'AMD64'",
+]
