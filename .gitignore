@@ -172,3 +172,15 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+*.sqlite
+# TranslatorOCR — artefatos de runtime
+cache.sqlite
+debug_dump_*.png
+overlay_shot.png
+
+# Pesos baixados por scripts/fetch_models.py
+models/
+dataset/
+
+CLAUDE.md

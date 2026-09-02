@@ -1,0 +1,158 @@
+# Configuração do TranslatorOCR.
+#
+# Este arquivo é OPCIONAL — todos os valores abaixo são os defaults embutidos, e o
+# app roda sem ele. Está versionado para servir de documentação do que dá pra
+# ajustar; apague qualquer seção que você não queira mudar.
+
+debug_dump = false
+
+[capture]
+# "mss" | "dxcam". O mss captura o desktop virtual inteiro e instala limpo em
+# qualquer máquina. O dxcam usa Desktop Duplication e é o único que funciona em jogo
+# D3D em fullscreen exclusivo, onde o BitBlt do mss devolve tela preta — mas captura
+# uma saída por vez.
+backend = "mss"
+# Padrão do mss: 0 = desktop virtual inteiro, 1 = monitor primário. O dxcam não tem
+# equivalente ao 0 e cai no primário, com aviso.
+monitor = 1
+# Deixe em 1.0. Medido em 2026-09 com PP-OCRv5: o upscale não melhorou acurácia
+# (glifo de 11px já saiu perfeito no tamanho nativo) e, para ter efeito de fato,
+# exigiria subir `ocr.max_side_len` junto — o que custou 17x mais tempo pelo mesmo
+# resultado. O knob existe para reavaliar em material mais difícil.
+upscale = 1.0
+
+[ocr]
+backend = "rapidocr"
+use_gpu = true
+# Falha alto se a GPU foi pedida mas o CUDAExecutionProvider não carregou. Deixe
+# ligado: sem isso o onnxruntime cai em CPU sem avisar.
+strict_gpu = true
+# "en" mantém o charset do reconhecedor em ASCII, o que torna ideograma
+# irrepresentável na saída.
+lang = "en"
+model_type = "mobile"   # "mobile" | "server"
+ocr_version = "PP-OCRv5"
+max_side_len = 2000
+text_score = 0.5
+
+[detector]
+# Detector de balão (RT-DETR-v2 fine-tunado em mangá/HQ, Apache-2.0). Com ele ligado,
+# o reconhecedor só roda nos recortes marcados como texto — é o que remove as dezenas
+# de caixas de UI que apareciam numa captura de tela cheia.
+#
+# Desligue para voltar ao comportamento do v1 (reconhecedor na imagem inteira). É a
+# comparação que mostra o ganho, e o fallback se o modelo não foi baixado.
+enabled = true
+# Baixado por `uv run scripts/fetch_models.py detector`.
+model_path = "models/comic-bubble-detector.onnx"
+use_gpu = true
+strict_gpu = true
+# O modelo foi treinado em 640x640 e o preprocessor dele não preserva aspecto.
+# Mudar sem re-treinar degrada a detecção.
+input_size = 640
+score_threshold = 0.3
+# Fração da linha que precisa cair dentro de uma região para ser atribuída a ela.
+# Linha que não alcança isso em nenhuma região é descartada — é assim que a UI sai.
+min_line_overlap = 0.5
+
+[grouping]
+line_gap_ratio = 1.0
+min_h_overlap = 0.35
+# Freio contra encadeamento transitivo: sem isso uma coluna de linhas alinhadas e
+# igualmente espacadas (sidebar de IDE, indice) funde tudo num bloco so.
+# Só se aplica quando NÃO há detector — com [detector] ligado, cada região detectada
+# é um bloco e a fronteira vem do modelo, não desta heurística.
+max_lines_per_block = 8
+reading_order = "ltr"   # "rtl" inverte o sentido horizontal da ordem de leitura
+row_band_ratio = 0.6
+
+[gate]
+# O portão entre reconhecer e traduzir. Lixo evidente é descartado antes de pagar
+# tradução; o que é apenas duvidoso segue marcado, e o overlay desenha a caixa com
+# borda âmbar em vez de deixar a leitura incerta parecer um acerto.
+enabled = true
+# Abaixo disto o bloco é marcado como duvidoso.
+min_confidence = 0.6
+# Abaixo disto é descartado de vez.
+drop_below = 0.35
+max_symbol_ratio = 0.5
+min_chars = 2
+
+[translation]
+# Ordem dos tiers; cada um só recebe o que o anterior não traduziu. O "nmt" é local
+# (sem rede, sem cota) e mediu 0.8s para 50 balões nesta máquina, contra 11.4s da
+# nuvem — por isso vem primeiro. A nuvem fica atrás, para o que ele não cobrir.
+tiers = ["nmt", "cloud"]
+# Mantido só como atalho de um tier só, quando `tiers` não é declarado.
+backend = "cloud"
+# "auto" só serve para a nuvem. O tier NMT é en->pt fixo e trata "auto" como inglês,
+# porque é o único idioma que o reconhecedor produz hoje.
+source_lang = "auto"
+target_lang = "pt"
+cache_path = "cache.sqlite"
+max_retries = 3
+backoff_base = 0.4
+timeout = 10.0
+# Traducao e I/O de rede; paralelizar tem ganho quase linear (82 blocos: 64s em
+# serie, 11s com 8 workers). Mas 8 ja provocou rate limit numa tela com 55 blocos,
+# e sob rate limit o endpoint devolve pagina de erro. A rajada importa mais que o
+# volume: 4 e o default seguro.
+max_workers = 4
+# --- tier NMT local (CTranslate2 + opus-mt-tc-big-en-pt) ---
+# Baixado por `uv run scripts/fetch_models.py nmt`.
+nmt_model_path = "models/opus-mt-en-pt-ct2"
+# Roda em CPU por decisão: o ctranslate2 carrega `cublas64_12.dll` por nome e este
+# venv tem CUDA 13 (do onnxruntime-gpu). Ligar a GPU custaria um wheel de ~553 MB
+# mais um add_dll_directory manual, para disputar VRAM com o OCR. Em CPU a tradução
+# ainda roda concorrente com a inferência de GPU.
+nmt_compute_type = "int8"   # "int8" | "int8_float32" | "float32"
+# Medido com 50 balões: beam 1 = 0.55s, beam 2 = 0.82s, beam 4 = 1.27s.
+nmt_beam_size = 2
+# O modelo é multi-alvo e exige token inicial de idioma.
+nmt_lang_token = ">>pob<<"  # ">>por<<" para português europeu
+nmt_threads = 0             # 0 deixa o ctranslate2 decidir
+
+[llm]
+# Refino por LLM local, só nos blocos que o gate marcou needs_review. Requer
+# `uv sync --group llm` (compila o llama-cpp-python; ver README) e o modelo baixado
+# por `uv run scripts/fetch_models.py llm`. Se o import ou o arquivo faltar, o app
+# avisa no log e segue só com a tradução rápida (nmt/cloud) — não quebra.
+enabled = true
+# Escolhido por benchmark (scripts/benchmark_llm.py) contra o Qwen3-8B: qualidade
+# equivalente em frases reais, mas ~3x mais rápido por bloco e com bem mais folga de
+# VRAM.
+model_path = "models/Qwen3-4B-Q4_K_M.gguf"
+# -1 = offload total pra GPU. Reduza se um detector maior entrar depois e a soma
+# estourar VRAM.
+n_gpu_layers = -1
+n_ctx = 4096
+# Quantas traduções anteriores entram como contexto rolante no prompt.
+context_window = 6
+# JSON {"nome original": "tradução"}. TOML não tem null; deixe em branco (como está)
+# pra não incluir glossário no prompt.
+glossary_path = ""
+
+[overlay]
+box_color = [0, 0, 0, 205]
+text_color = [245, 245, 245]
+outline_color = [0, 0, 0, 180]
+# Borda das caixas que o gate marcou como duvidosas.
+review_color = [230, 160, 30, 230]
+corner_radius = 6
+padding = 6
+min_font_pt = 7
+max_font_pt = 42
+font_family = "Segoe UI"
+
+[hotkeys]
+capture = "F8"
+dismiss = "F9"
+quit = "F10"
+# Clicar e arrastar delimita a área que o F8 vai capturar; default (sem seleção) é
+# tela cheia. Um clique sem arrastar (ou um arraste minúsculo) reseta pra tela cheia.
+select_area = "F11"
+# Mostra/esconde uma borda tracejada na área que o F8 capturaria — útil pra conferir
+# a seleção antes de rodar o pipeline de verdade. F12 era o default óbvio mas é
+# comumente reservado por outro programa (overlay de GPU, gravador de tela); troque
+# aqui se F7 também colidir na sua máquina.
+show_region_outline = "F7"

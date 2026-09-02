@@ -1,19 +1,76 @@
 [project]
 name = "translatorocr"
 version = "0.1.0"
-description = "OCR e tradução com captura de tela e clipboard"
+description = "Tradutor de tela ao vivo: OCR + tradução desenhada em overlay na posição do texto"
 requires-python = ">=3.13"
 dependencies = [
+    "ctranslate2>=4.8.2",
     "deep-translator>=1.11.4",
-    "easyocr>=1.7.2",
-    "keyboard>=0.13.5",
-    "numpy>=2.4.6",
-    "pillow>=12.2.0",
-    "pyperclip>=1.11.0",
-    "PyQt5>=5.15; sys_platform == 'win32' and platform_machine == 'AMD64'",
+    "dxcam>=0.3.0",
+    "mss>=10.2.0",
+    "numpy>=2.5.2",
+    "onnxruntime-gpu[cuda,cudnn]>=1.29.0",
+    "opencv-python-headless>=5.0.0.93",
+    "pyqt6>=6.11.0",
+    "rapidocr>=3.9.2",
+    "sentencepiece>=0.2.2",
 ]
 
 [tool.uv]
+# O projeto é Windows-only (DXcam/MSS, RegisterHotKey, flags WS_EX_* do overlay).
+# Declarar isso faz o uv resolver os pacotes CUDA da NVIDIA para as versões que
+# de fato têm wheel win_amd64 — sem isso ele tenta a mais nova, que é Linux-only.
 required-environments = [
     "sys_platform == 'win32' and platform_machine == 'AMD64'",
 ]
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.411",
+    "pytest>=9.1.1",
+    "ruff>=0.16.5",
+]
+# Tier de LLM local e o harness de benchmark que o mede. Separado do `dev`
+# porque é pesado (GGUF + build com CUDA) e só quem for rodar o benchmark ou usar
+# o tier de LLM precisa disso -- o resto do app não importa `llama_cpp`.
+llm = [
+    "llama-cpp-python>=0.3.9",
+    "pynvml>=12.0.0",
+]
+
+[tool.pytest.ini_options]
+# O projeto roda a partir da raiz, não é instalado como pacote.
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # isort
+    "N",        # pep8-naming — precisa estar ligado por causa dos overrides do Qt
+    "UP",       # pyupgrade
+    "B",        # bugbear
+    "SIM",      # simplify
+    "BLE",      # blind-except — ligado de propósito: capturar Exception aqui é
+                # decisão consciente em pontos de fronteira (ctypes, rede, modelos),
+                # e cada um carrega um noqa explicando
+    "RUF",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Testes acessam atributos privados de propósito, ao construir dublês.
+"tests/*" = ["SLF001"]
+
+[tool.pyright]
+include = ["translatorocr", "tests"]
+pythonVersion = "3.13"
+# "standard" e não "strict": as libs do projeto (rapidocr, mss, deep-translator)
+# não têm stubs, e no modo strict o ruído de "tipo desconhecido" vindo delas
+# afogaria os erros reais do nosso código.
+typeCheckingMode = "standard"
+reportMissingTypeStubs = false

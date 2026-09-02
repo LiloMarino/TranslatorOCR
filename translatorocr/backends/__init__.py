@@ -1,0 +1,1 @@
+"""Implementações plugáveis dos estágios."""
