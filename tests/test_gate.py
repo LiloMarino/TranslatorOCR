@@ -11,6 +11,7 @@ from translatorocr.config import GateConfig
 from translatorocr.core.gate import (
     apply_gate,
     charset_violation,
+    fix_digit_confusion,
     looks_like_garbage,
     normalize_text,
     symbol_ratio,
@@ -128,3 +129,51 @@ def test_gate_desligado_devolve_tudo_intacto():
 def test_ordem_dos_blocos_e_preservada(cfg):
     kept = apply_gate([block("First one."), block("|<>#*"), block("Third one.")], cfg, "en")
     assert [b.source for b in kept] == ["First one.", "Third one."]
+
+
+# -- leituras reais de mangá -----------------------------------------------
+# Os modos de falha vistos em página real: uma palavra seguida de til lida de três
+# jeitos diferentes, e decoração do cenário lida como número.
+
+
+# O glifo alucinado de verdade: um alfa grego no lugar de uma letra latina.
+ALPHA = "\N{GREEK SMALL LETTER ALPHA}"
+
+
+def test_glifo_alucinado_e_removido_sem_derrubar_o_balao(cfg):
+    kept = apply_gate([block(f"THAT'S ~{ALPHA}ao", 0.9)], cfg, "en")
+    assert [b.source for b in kept] == ["THAT'S ~ao"]
+    assert kept[0].needs_review is True
+
+
+def test_zero_no_lugar_de_o_e_corrigido(cfg):
+    kept = apply_gate([block("THAT'S 0DD~", 0.9)], cfg, "en")
+    assert [b.source for b in kept] == ["THAT'S ODD~"]
+    assert kept[0].needs_review is False
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("0DD", "ODD"),
+        ("1T'S", "IT'S"),
+        ("g0od", "good"),
+        ("HP 240", "HP 240"),
+        ("10", "10"),
+        ("A2B", "A2B"),
+    ],
+)
+def test_fix_digit_confusion(text, expected):
+    assert fix_digit_confusion(text) == expected
+
+
+@pytest.mark.parametrize("text", ["80", "58", "1 2 3", "...!"])
+def test_bloco_sem_letra_e_descartado(cfg, text):
+    assert apply_gate([block(text, 0.99)], cfg, "en") == []
+
+
+def test_marca_de_needs_review_vinda_de_antes_e_preservada(cfg):
+    """O pipeline marca balão cortado na borda antes do gate; o gate não pode apagar."""
+    b = block("Let's go home.", 0.95)
+    b.needs_review = True
+    assert apply_gate([b], cfg, "en")[0].needs_review is True

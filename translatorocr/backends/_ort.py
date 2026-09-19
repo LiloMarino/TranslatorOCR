@@ -23,6 +23,10 @@ def preload_cuda_dlls() -> None:
     """Carrega os DLLs de CUDA/cuDNN dos pacotes pip da NVIDIA. Idempotente."""
     import onnxruntime as ort
 
+    # Só ERROR para cima no log C++ do ORT. Ele avisa "No registered plugin EP device
+    # found for 'CUDAExecutionProvider'" a cada sessão, e a sessão sobe na GPU mesmo
+    # assim. Não se perde checagem: `check_providers` confere o provider de verdade.
+    ort.set_default_logger_severity(3)
     if hasattr(ort, "preload_dlls"):
         ort.preload_dlls()
 

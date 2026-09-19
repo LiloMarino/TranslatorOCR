@@ -7,9 +7,11 @@ backends são criados uma única vez na inicialização, reutilizados em cada ca
 from __future__ import annotations
 
 import logging
+import time
 
 from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 
+from .. import assets
 from ..config import Config
 from ..models import Region
 
@@ -24,26 +26,67 @@ class PipelineWorker(QObject):
     refined = pyqtSignal(list)  # list[TextBlock]
     failed = pyqtSignal(str)
     started_loading = pyqtSignal()
-    finished_loading = pyqtSignal()
+    # Texto curto do que está acontecendo durante a carga ("Baixando tradutor offline
+    # (445 MB)... 42%"), para o console e o overlay.
+    loading_progress = pyqtSignal(str)
+    finished_loading = pyqtSignal(float)  # segundos desde o início da carga
 
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: Config, warmup_region: Region | None = None) -> None:
         super().__init__()
         self._cfg = config
+        # A mesma região que a captura vai usar: o aquecimento só vale para o formato
+        # de entrada que ele viu (ver `Pipeline.warmup`).
+        self._warmup_region = warmup_region
         self._pipeline = None
 
     @pyqtSlot()
     def initialize(self) -> None:
-        """Carrega os modelos. Roda uma vez, já dentro da thread do worker."""
+        """Baixa o que faltar, carrega os modelos e aquece a GPU. Roda uma vez, já
+        dentro da thread do worker."""
         from ..registry import build_pipeline
 
+        started = time.perf_counter()
         self.started_loading.emit()
+        self._download_missing()
+        self.loading_progress.emit("Carregando modelos...")
         try:
             self._pipeline = build_pipeline(self._cfg)
+            self._pipeline.warmup(self._warmup_region)
         except Exception as exc:
             log.exception("Falha ao inicializar o pipeline")
             self.failed.emit(str(exc))
             return
-        self.finished_loading.emit()
+        self.finished_loading.emit(time.perf_counter() - started)
+
+    def _download_missing(self) -> None:
+        """Primeira execução: baixa o detector e o NMT. O LLM fica de fora — está
+        desligado por padrão e são 2.5 GB."""
+        groups = ["detector", "nmt"] + (["llm"] if self._cfg.llm.enabled else [])
+        if not assets.missing(groups):
+            return
+
+        current = ""
+        last_emit = 0.0
+
+        def on_start(group: str, asset: assets.Asset) -> None:
+            nonlocal current
+            current = f"Baixando {assets.LABELS[group]} ({assets.human(asset.size)})"
+            self.loading_progress.emit(f"{current}...")
+
+        def on_progress(done: int, total: int, _rate: float) -> None:
+            nonlocal last_emit
+            now = time.perf_counter()
+            # Um sinal por pedaço de 1 MB inundaria a fila do Qt à toa.
+            if now - last_emit >= 0.25 or done >= total:
+                last_emit = now
+                self.loading_progress.emit(f"{current}... {done / max(1, total):.0%}")
+
+        failed = assets.ensure(groups, on_start, on_progress)
+        if failed:
+            # Sem rede: o registry segue sem o que faltou (sem detector, ou tradução
+            # pela nuvem) e avisa no log — não é motivo para não abrir.
+            names = ", ".join(assets.LABELS[g] for g in failed)
+            self.loading_progress.emit(f"Não foi possível baixar: {names}. Seguindo sem.")
 
     @pyqtSlot(object)
     def capture(self, region: Region | None = None) -> None:
@@ -81,9 +124,9 @@ class PipelineWorker(QObject):
 class WorkerThread:
     """Dono do par QThread + PipelineWorker, com desligamento ordenado."""
 
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: Config, warmup_region: Region | None = None) -> None:
         self.thread = QThread()
-        self.worker = PipelineWorker(config)
+        self.worker = PipelineWorker(config, warmup_region)
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.initialize)
 

@@ -67,6 +67,19 @@ class Pipeline:
         cv2.imwrite(str(path), image)
         log.info("Debug dump salvo em %s", path.resolve())
 
+    def warmup(self, region: Region | None = None) -> None:
+        """Roda o OCR uma vez, descartando o resultado, para a primeira captura de
+        verdade não pagar a inicialização da GPU.
+
+        Sem isto a primeira captura levava 4.2 s, contra ~0.5 s nas seguintes: é o
+        cuDNN escolhendo algoritmo de convolução na primeira inferência. A escolha é
+        por formato de entrada, então o aquecimento usa uma captura real da tela — uma
+        imagem sintética de outro tamanho não adiantaria.
+        """
+        shot = self._grab(region)
+        if shot is not None:
+            self._ocr.read(shot.image)
+
     def run(self, region: Region | None = None) -> list[TextBlock]:
         from .gate import apply_gate
         from .grouping import group

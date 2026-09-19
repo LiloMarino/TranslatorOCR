@@ -15,6 +15,11 @@ from pathlib import Path
 
 _WHITESPACE = re.compile(r"\s+")
 
+# Entra na chave. Subir quando uma mudança de tradução tornar as entradas antigas
+# piores que traduzir de novo — v2: o NMT passou a traduzir em caixa de frase e por
+# frase, e o que estava em cache eram traduções feitas em CAIXA ALTA.
+_KEY_VERSION = "2"
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS translations (
     key         TEXT PRIMARY KEY,
@@ -34,7 +39,7 @@ def normalize(text: str) -> str:
 
 
 def make_key(text: str, source: str, target: str) -> str:
-    payload = f"{source}\x1f{target}\x1f{normalize(text)}".encode()
+    payload = f"{_KEY_VERSION}\x1f{source}\x1f{target}\x1f{normalize(text)}".encode()
     return hashlib.sha1(payload).hexdigest()
 
 

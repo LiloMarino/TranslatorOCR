@@ -120,7 +120,10 @@ def image() -> np.ndarray:
 
 
 def composite(regions, lines, **kw):
-    return CompositeOCR(FakeDetector(regions), FakeRecognizer(lines), DetectorConfig(**kw))
+    # Sem a segunda passada por padrão: estes testes são sobre a atribuição, e o dublê
+    # de reconhecedor devolveria as mesmas linhas também no mosaico.
+    cfg = DetectorConfig(**{"fallback": False, **kw})
+    return CompositeOCR(FakeDetector(regions), FakeRecognizer(lines), cfg)
 
 
 def region(x1, y1, x2, y2, kind="text_bubble") -> Detection:
@@ -134,7 +137,8 @@ def line(x1, y1, x2, y2, text="oi") -> TextLine:
 def test_reconhecedor_roda_uma_vez_na_imagem_inteira(image):
     """O caro é chamar o reconhecedor; por região custou 21.7s contra 1.95s."""
     recognizer = FakeRecognizer()
-    CompositeOCR(FakeDetector([region(0, 0, 100, 100)]), recognizer, DetectorConfig()).read(image)
+    cfg = DetectorConfig(fallback=False)
+    CompositeOCR(FakeDetector([region(0, 0, 100, 100)]), recognizer, cfg).read(image)
     assert recognizer.calls == 1
 
 
@@ -189,3 +193,135 @@ def test_sem_regiao_o_reconhecedor_nem_e_chamado(image):
 def test_texto_e_confianca_sao_preservados(image):
     out = composite([region(0, 0, 100, 100)], [line(10, 10, 50, 30, "Hello")]).read(image)
     assert (out[0].text, out[0].confidence, out[0].bbox) == ("Hello", 0.9, (10, 10, 50, 30))
+
+
+# -- segunda passada em mosaico ----------------------------------------------
+# Em página real o DBNet perdeu um balão de uma palavra só e recortou mal uma linha
+# curta (letra duplicada, 0.61); o
+# reconhecedor acerta os dois quando recebe a região recortada com margem.
+
+
+class ScriptedRecognizer:
+    """Uma lista de linhas por chamada: a 1ª é a imagem cheia, a 2ª o mosaico."""
+
+    def __init__(self, *calls: list[TextLine]) -> None:
+        self._calls = list(calls)
+        self.images: list[np.ndarray] = []
+
+    def read(self, image):
+        self.images.append(image)
+        return self._calls.pop(0) if self._calls else []
+
+
+def fallback_ocr(regions, *calls, **kw):
+    recognizer = ScriptedRecognizer(*calls)
+    return CompositeOCR(FakeDetector(regions), recognizer, DetectorConfig(**kw)), recognizer
+
+
+def test_regiao_sem_linha_e_refeita_no_mosaico_e_volta_na_coordenada_original(image):
+    # Região 100x40 em (100, 50); com margem 30 o recorte ocupa 160x100 no mosaico.
+    ocr, recognizer = fallback_ocr(
+        [region(100, 50, 200, 90)],
+        [],
+        [line(40, 40, 120, 60, "OK!")],
+        fallback_pad=30,
+    )
+    out = ocr.read(image)
+    assert len(recognizer.images) == 2
+    assert recognizer.images[1].shape[:2] == (100, 160)
+    assert [(ln.text, ln.bbox, ln.region_id) for ln in out] == [("OK!", (110, 60, 190, 80), 0)]
+
+
+def test_mosaico_e_uma_chamada_so_para_varias_regioes(image):
+    """Uma chamada por região custou 11x; o mosaico tem que ser uma chamada só."""
+    regions = [region(20, 20, 80, 60), region(150, 100, 250, 140)]
+    # Faixas no mosaico: [0, 100) e [120, 220). Uma linha em cada.
+    ocr, recognizer = fallback_ocr(
+        regions,
+        [],
+        [line(35, 40, 90, 60, "HI,"), line(35, 160, 130, 180, "OK!")],
+        fallback_pad=30,
+    )
+    out = ocr.read(image)
+    assert len(recognizer.images) == 2
+    assert {ln.text: ln.region_id for ln in out} == {"HI,": 0, "OK!": 1}
+    assert next(ln for ln in out if ln.text == "OK!").bbox == (155, 110, 250, 130)
+
+
+def test_regiao_bem_lida_nao_e_refeita(image):
+    good = TextLine(bbox=(30, 20, 70, 60), text="OK", confidence=0.95)
+    ocr, recognizer = fallback_ocr([region(20, 20, 80, 60)], [good], fallback_confidence=0.8)
+    assert [ln.text for ln in ocr.read(image)] == ["OK"]
+    assert len(recognizer.images) == 1
+
+
+def test_leitura_duvidosa_e_trocada_pela_do_mosaico(image):
+    bad = TextLine(bbox=(30, 30, 70, 50), text="HHI", confidence=0.61)
+    ocr, _ = fallback_ocr(
+        [region(20, 20, 80, 60)], [bad], [line(35, 40, 90, 60, "HI,")], fallback_confidence=0.8
+    )
+    assert [ln.text for ln in ocr.read(image)] == ["HI,"]
+
+
+def test_mosaico_vazio_mantem_a_primeira_leitura(image):
+    bad = TextLine(bbox=(30, 30, 70, 50), text="HHI", confidence=0.61)
+    ocr, _ = fallback_ocr([region(20, 20, 80, 60)], [bad], [])
+    assert [ln.text for ln in ocr.read(image)] == ["HHI"]
+
+
+def test_fallback_desligado_chama_o_reconhecedor_uma_vez(image):
+    ocr, recognizer = fallback_ocr([region(20, 20, 80, 60)], [], [line(0, 0, 5, 5)], fallback=False)
+    assert ocr.read(image) == []
+    assert len(recognizer.images) == 1
+
+
+# -- regiões duplicadas e balão cortado --------------------------------------
+
+
+def test_duas_caixas_para_o_mesmo_balao_viram_uma(image):
+    """Sem fundir, a mesma fala saía duas vezes."""
+    regions = [region(20, 20, 120, 80), region(25, 22, 118, 85)]
+    lines = [TextLine(bbox=(30, 30, 100, 50), text="WAIT A", confidence=0.95)]
+    ocr, _ = fallback_ocr(regions, lines)
+    assert {ln.region_id for ln in ocr.read(image)} == {0}
+
+
+def test_merge_overlapping_nao_funde_baloes_vizinhos():
+    from translatorocr.backends.ocr_composite import merge_overlapping
+
+    # Encostados, com sobreposição pequena: são dois balões.
+    regions = [region(0, 0, 100, 100), region(90, 0, 200, 100)]
+    assert len(merge_overlapping(regions, 0.6)) == 2
+
+
+def test_regiao_na_borda_da_captura_marca_as_linhas_como_parciais(image):
+    # A imagem tem 300x200; a primeira região encosta embaixo.
+    regions = [region(20, 20, 80, 60), region(100, 150, 200, 199)]
+    lines = [
+        TextLine(bbox=(30, 30, 70, 50), text="WHOLE", confidence=0.95),
+        TextLine(bbox=(110, 160, 190, 190), text="CUT", confidence=0.95),
+    ]
+    ocr, _ = fallback_ocr(regions, lines)
+    assert {ln.text: ln.partial for ln in ocr.read(image)} == {"WHOLE": False, "CUT": True}
+
+
+def test_linha_perdida_e_detectada_pela_cobertura(image):
+    """Balão de quatro linhas que perdeu a primeira: as outras tinham confiança 1.0."""
+    kept = [TextLine(bbox=(30, 60, 110, 80), text="SECOND, PLEASE", confidence=1.0)]
+    # No mosaico (margem 30): voltam como y 20..46 e 46..72, cobrindo 87% da região.
+    full = [
+        line(35, 30, 115, 56, "WAIT A"),
+        line(35, 56, 115, 82, "SECOND, PLEASE"),
+    ]
+    # Região 20..80 de altura: a linha que sobrou cobre só 1/3 dela.
+    ocr, recognizer = fallback_ocr([region(20, 20, 120, 80)], kept, full)
+    assert [ln.text for ln in ocr.read(image)] == ["WAIT A", "SECOND, PLEASE"]
+    assert len(recognizer.images) == 2
+
+
+def test_segunda_passada_pior_nao_substitui_a_primeira(image):
+    """A leitura do mosaico só entra se for melhor: cobrir a região, depois confiança."""
+    first = [TextLine(bbox=(30, 20, 70, 60), text="~0o", confidence=0.6)]
+    ocr, _ = fallback_ocr([region(20, 20, 80, 60)], first, [line(35, 35, 85, 50, "~000")])
+    # A linha do mosaico volta como y 25..40: cobre só 3/8 da região.
+    assert [ln.text for ln in ocr.read(image)] == ["~0o"]

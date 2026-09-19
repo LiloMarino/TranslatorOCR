@@ -36,6 +36,7 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
+from ..assets import LLM_PATH
 from ..config import LLMConfig
 from ..models import TextBlock
 
@@ -66,7 +67,7 @@ class LLMTranslator:
     def __init__(self, cfg: LLMConfig) -> None:
         from llama_cpp import Llama
 
-        path = Path(cfg.model_path)
+        path = LLM_PATH
         if not path.is_file():
             raise FileNotFoundError(
                 f"Modelo de LLM não encontrado em {path.resolve()}. "

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from translatorocr.backends.translate_nmt import NMTTranslator
+from translatorocr.backends.translate_nmt import NMTTranslator, sentence_case, split_sentences
 from translatorocr.config import TranslationConfig
 
 
@@ -60,18 +60,6 @@ def test_token_de_idioma_entra_cru_antes_das_pecas():
     tr.translate(["hello world"], "en", "pt")
     assert tr._translator.batches[0][0][0] == ">>pob<<"
     assert "▁hello" in tr._translator.batches[0][0]
-
-
-def test_token_de_idioma_configuravel():
-    tr = make(nmt_lang_token=">>por<<")
-    tr.translate(["hello"], "en", "pt")
-    assert tr._translator.batches[0][0][0] == ">>por<<"
-
-
-def test_sem_token_configurado_nao_prepende_nada():
-    tr = make(nmt_lang_token="")
-    tr.translate(["hello"], "en", "pt")
-    assert tr._translator.batches[0][0][0] == "▁hello"
 
 
 # -- eos -------------------------------------------------------------------
@@ -139,3 +127,63 @@ def test_hipotese_vazia_vira_none():
     tr = make()
     tr._translator._outputs = [[]]
     assert tr.translate(["hello"], "en", "pt") == [None]
+
+
+# -- caixa de frase ----------------------------------------------------------
+# Letreiro de mangá é todo em CAIXA ALTA, e nela o modelo troca palavras comuns por
+# outras. Os casos cobrem reticências iniciais, pronome I e contrações com apóstrofo curvo.
+
+# O apóstrofo curvo é o que o letreiro de mangá usa, e o que o OCR devolve.
+APOS = "\N{RIGHT SINGLE QUOTATION MARK}"
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        (f"IT{APOS}S A TRAP.", f"It{APOS}s a trap."),
+        (f"THAT{APOS}S ODD~", f"That{APOS}s odd~"),
+        ("...WHERE ARE WE GOING?", "...Where are we going?"),
+        (f"I{APOS}M NOT SURE ABOUT THIS...", f"I{APOS}m not sure about this..."),
+        ("OK. WHY DON'T WE WAIT?", "Ok. Why don't we wait?"),
+        ("HEY, JEAN-LUC... I THINK SO", "Hey, jean-luc... I think so"),
+    ],
+)
+def test_sentence_case_em_caixa_alta(text, expected):
+    assert sentence_case(text) == expected
+
+
+@pytest.mark.parametrize("text", ["Hello there, NASA.", "I saw it.", "", "80", "..."])
+def test_sentence_case_nao_mexe_em_texto_que_nao_e_caixa_alta(text):
+    assert sentence_case(text) == text
+
+
+# -- por frase ---------------------------------------------------------------
+
+
+def test_split_sentences():
+    assert split_sentences("Yeah. Why don't you? Ok!  Fine~ end") == [
+        "Yeah.",
+        "Why don't you?",
+        "Ok!",
+        "Fine~",
+        "end",
+    ]
+    assert split_sentences("...Can I ask") == ["...Can I ask"]
+
+
+def test_balao_com_dois_periodos_vira_duas_frases_no_mesmo_lote():
+    """Com os dois períodos juntos o modelo engolia o primeiro."""
+    tr = make()
+    tr._translator._outputs = [["▁Sim."], ["▁Por", "▁quê?"], ["▁Ei."]]
+    out = tr.translate(["OK. WHY?", "HEY."], "en", "pt")
+    assert out == ["Sim. Por quê?", "Ei."]
+    assert len(tr._translator.batches) == 1
+    sources = [[p for p in b if p.startswith("▁")] for b in tr._translator.batches[0]]
+    assert sources == [["▁Ok."], ["▁Why?"], ["▁Hey."]]
+
+
+def test_frase_sem_traducao_invalida_o_balao_inteiro():
+    """Meia tradução com cara de completa é pior que deixar a nuvem tentar."""
+    tr = make()
+    tr._translator._outputs = [["▁Sim."], [], ["▁Ei."]]
+    assert tr.translate(["OK. WHY?", "HEY."], "en", "pt") == [None, "Ei."]

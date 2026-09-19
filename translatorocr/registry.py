@@ -30,10 +30,6 @@ def build_capture(config: Config) -> CaptureBackend:
 
 
 def build_ocr(config: Config) -> OCRBackend:
-    name = config.ocr.backend.lower()
-    if name != "rapidocr":
-        raise ValueError(f"Backend de OCR desconhecido: {config.ocr.backend!r}")
-
     from .backends.ocr_rapid import RapidOCRBackend
 
     recognizer = RapidOCRBackend(config.ocr)
@@ -45,7 +41,14 @@ def build_ocr(config: Config) -> OCRBackend:
     from .backends.detect_bubble import BubbleDetector
     from .backends.ocr_composite import CompositeOCR
 
-    return CompositeOCR(BubbleDetector(config.detector), recognizer, config.detector)
+    try:
+        detector = BubbleDetector(config.detector)
+    except FileNotFoundError as exc:
+        # Sem o detector o app ainda funciona, só volta a agrupar por heurística e a
+        # deixar passar texto fora de balão. WARNING porque a diferença é visível.
+        log.warning("Detector de balão indisponível, seguindo sem ele: %s", exc)
+        return recognizer
+    return CompositeOCR(detector, recognizer, config.detector)
 
 
 def _build_tier(name: str, config: Config, cache: TranslationCache) -> TranslatorBackend:
@@ -62,7 +65,7 @@ def _build_tier(name: str, config: Config, cache: TranslationCache) -> Translato
 
 def build_translator(config: Config) -> TranslatorBackend:
     cache = TranslationCache(config.translation.cache_path)
-    names = config.translation.tiers or [config.translation.backend]
+    names = config.translation.tiers
 
     tiers: list[TranslatorBackend] = []
     for name in names:
@@ -77,7 +80,7 @@ def build_translator(config: Config) -> TranslatorBackend:
     if not tiers:
         raise RuntimeError(
             f"Nenhum tier de tradução pôde ser construído (pedidos: {names}). "
-            "Rode `uv run scripts/fetch_models.py` ou ajuste [translation].tiers."
+            "Verifique a conexão e reinicie, ou rode `uv run scripts/fetch_models.py`."
         )
     if len(tiers) == 1:
         return tiers[0]

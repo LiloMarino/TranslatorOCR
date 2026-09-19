@@ -90,9 +90,9 @@ class OverlayWindow(QWidget):
     def _current_screen(self) -> QScreen | None:
         return self.screen() or QGuiApplication.primaryScreen()
 
-    def cover_screen(self) -> None:
-        """Cobre a tela em que a janela está, em coordenadas lógicas."""
-        screen = self._current_screen()
+    def cover_screen(self, screen: QScreen | None = None) -> None:
+        """Cobre a tela pedida (ou aquela em que a janela está), em coordenadas lógicas."""
+        screen = screen or self._current_screen()
         if screen is None:
             log.warning("Nenhuma tela disponível; o overlay fica sem geometria definida.")
             return
@@ -115,6 +115,16 @@ class OverlayWindow(QWidget):
         self._blocks = []
         self._status = None
         self.update()
+
+    def clear_status(self, message: str) -> None:
+        """Apaga a mensagem só se ela ainda for a que está na tela.
+
+        Para os timers de "Pronto" e "Nenhum texto encontrado": com `clear()` eles
+        apagavam também a tradução que chegasse antes de o timer vencer — F8 logo depois
+        do "Pronto" mostrava a tradução por meio segundo e sumia.
+        """
+        if self._status == message:
+            self.clear()
 
     def show_region_outline(self, region: Region) -> None:
         """Mostra uma borda na área que o F8 capturaria — útil pra conferir a

@@ -35,12 +35,16 @@ def logical_rect_to_physical(rect: QRect, screen: QScreen | None) -> Region:
     return Region(left=left, top=top, width=width, height=height)
 
 
-def screen_physical_region(screen: QScreen | None) -> Region:
-    """A região inteira de uma tela, em pixels físicos do desktop."""
+def screen_physical_region(screen: QScreen | None, work_area: bool = False) -> Region:
+    """A região inteira de uma tela, em pixels físicos do desktop.
+
+    `work_area` exclui a barra de tarefas. É o que a captura usa por padrão: numa tela
+    cheia, o campo "Pesquisar" e a fileira de ícones da barra viravam "balões".
+    """
     if screen is None:
         return Region(0, 0, 0, 0)
     ratio = screen.devicePixelRatio()
-    geo = screen.geometry()
+    geo = screen.availableGeometry() if work_area else screen.geometry()
     return Region(
         left=int(geo.left() * ratio),
         top=int(geo.top() * ratio),

@@ -33,8 +33,15 @@ log = logging.getLogger(__name__)
 _LATIN_EXTRA = set("‘’“”–—…€\u00a0")  # noqa: RUF001
 
 _VOWELS = set("aeiouyAEIOUY")
+# Palavra de letras com 0/1 infiltrado: "0DD" é "ODD", "1T" é "IT".
+_WORD = re.compile(r"[A-Za-z0-9]+")
+_DIGIT_AS_LETTER = {"0": ("O", "o"), "1": ("I", "l")}
 _ALNUM = re.compile(r"[^\W_]", re.UNICODE)
 _CONSONANT_RUN = re.compile(r"[bcdfghjklmnpqrstvwxzBCDFGHJKLMNPQRSTVWXZ]{5,}")
+
+
+def _invalid_char(ch: str) -> bool:
+    return ord(ch) > 0xFF and ch not in _LATIN_EXTRA
 
 
 def charset_violation(text: str, lang: str) -> bool:
@@ -47,7 +54,47 @@ def charset_violation(text: str, lang: str) -> bool:
     """
     if not lang.lower().startswith("en"):
         return False
-    return any(ord(ch) > 0xFF and ch not in _LATIN_EXTRA for ch in text)
+    return any(_invalid_char(ch) for ch in text)
+
+
+def strip_invalid(text: str, lang: str) -> tuple[str, float]:
+    """Remove os caracteres impossíveis para o idioma; devolve o texto e a fração removida.
+
+    Um glifo alucinado no meio de uma frase boa não deve custar o balão inteiro:
+    uma fala terminando em `ODD~`, lida com um alfa grego no lugar do D, perdia a
+    fala toda.
+    """
+    if not lang.lower().startswith("en"):
+        return text, 0.0
+    meaningful = [ch for ch in text if not ch.isspace()]
+    if not meaningful:
+        return text, 0.0
+    invalid = sum(1 for ch in meaningful if _invalid_char(ch))
+    if not invalid:
+        return text, 0.0
+    cleaned = "".join(ch for ch in text if not _invalid_char(ch))
+    return " ".join(cleaned.split()), invalid / len(meaningful)
+
+
+def fix_digit_confusion(text: str) -> str:
+    """`0DD` → `ODD`: dígito 0/1 dentro de palavra que no resto é só letra.
+
+    Letreiro de mangá tem O e I bem parecidos com 0 e 1, e o reconhecedor troca. Número
+    de verdade (`240`, `10`) não é tocado, porque não tem letra nenhuma.
+    """
+
+    def fix(match: re.Match[str]) -> str:
+        word = match.group(0)
+        letters = [ch for ch in word if ch.isalpha()]
+        digits = [ch for ch in word if ch.isdigit()]
+        if not letters or not digits or any(d not in _DIGIT_AS_LETTER for d in digits):
+            return word
+        upper = sum(ch.isupper() for ch in letters) * 2 >= len(letters)
+        return "".join(
+            _DIGIT_AS_LETTER[ch][0 if upper else 1] if ch in _DIGIT_AS_LETTER else ch for ch in word
+        )
+
+    return _WORD.sub(fix, text)
 
 
 def symbol_ratio(text: str) -> float:
@@ -68,6 +115,10 @@ def looks_like_garbage(text: str, cfg: GateConfig) -> bool:
     """
     stripped = text.strip()
     if len(stripped) < cfg.min_chars:
+        return True
+    # Sem letra nenhuma não há o que traduzir: número de página, ou decoração do cenário
+    # lida como "80".
+    if not any(ch.isalpha() for ch in stripped):
         return True
     if symbol_ratio(stripped) > cfg.max_symbol_ratio:
         return True
@@ -97,19 +148,24 @@ def apply_gate(blocks: list[TextBlock], cfg: GateConfig, lang: str) -> list[Text
     kept: list[TextBlock] = []
     dropped = 0
     for block in blocks:
-        block.source = normalize_text(block.source)
+        block.source, invalid = strip_invalid(normalize_text(block.source), lang)
+        block.source = fix_digit_confusion(block.source)
 
         if (
             not block.source
             or block.confidence < cfg.drop_below
-            or charset_violation(block.source, lang)
+            or invalid > cfg.max_invalid_ratio
             or looks_like_garbage(block.source, cfg)
         ):
             dropped += 1
             log.debug("gate descartou (conf=%.2f): %r", block.confidence, block.source[:60])
             continue
 
-        block.needs_review = block.confidence < cfg.min_confidence
+        # `or`: o pipeline pode já ter marcado o bloco (balão cortado na borda da
+        # captura), e o gate não deve apagar essa marca.
+        block.needs_review = (
+            block.needs_review or bool(invalid) or block.confidence < cfg.min_confidence
+        )
         kept.append(block)
 
     if dropped:

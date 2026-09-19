@@ -93,7 +93,7 @@ class GlobalHotkeys(QAbstractNativeEventFilter):
             return False
         self._callbacks[hotkey_id] = callback
         self._next_id += 1
-        log.info("Hotkey registrada: %s", spec)
+        log.debug("Hotkey registrada: %s", spec)
         return True
 
     def install(self) -> None:

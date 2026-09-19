@@ -83,6 +83,9 @@ class TextLine:
     # que o detector achou em vez de inferi-la por proximidade. `None` quando o
     # reconhecedor rodou sobre a imagem inteira, sem detector.
     region_id: int | None = None
+    # A região encosta na borda da captura: o balão provavelmente continua fora da
+    # tela, e a tradução do pedaço visível não deve parecer completa.
+    partial: bool = False
 
     @property
     def height(self) -> int:

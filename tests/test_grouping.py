@@ -180,3 +180,15 @@ def test_entrada_fora_de_ordem_ainda_sai_ordenada(cfg):
         rline(10, 10, 90, 30, 0, "primeira"),
     ]
     assert merge_lines(lines, cfg)[0].source == "primeira segunda"
+
+
+def test_linha_parcial_marca_o_bloco_para_revisao(cfg):
+    """Balão cortado pela borda da captura: a tradução do pedaço não pode parecer inteira."""
+    lines = [
+        TextLine(
+            bbox=(0, 0, 50, 10), text="TO BE CONT", confidence=0.95, region_id=0, partial=True
+        ),
+        TextLine(bbox=(0, 50, 50, 60), text="WHOLE", confidence=0.95, region_id=1),
+    ]
+    flags = {b.source: b.needs_review for b in group(lines, cfg)}
+    assert flags == {"TO BE CONT": True, "WHOLE": False}

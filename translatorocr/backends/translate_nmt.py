@@ -19,15 +19,27 @@ Três detalhes de tokenização, cada um capaz de degradar a saída **sem** leva
 3. O `config.json` deste modelo traz `add_source_eos: false`, então o `</s>` final é
    responsabilidade nossa. O campo é **lido**, não presumido: um modelo convertido pelo
    caminho Marian vem com `true`, e aí anexar de novo duplicaria o token.
+
+E dois cuidados com o texto de mangá, medidos em páginas reais (2026-09):
+
+- **CAIXA ALTA estraga a tradução.** O modelo foi treinado em texto com caixa normal, e
+  balão de mangá é todo em maiúscula: palavras comuns saíam trocadas por outras, e
+  interjeição curta saía com token desconhecido. Convertido para caixa de frase
+  (`sentence_case`), todos saíram certos.
+- **Com dois períodos no mesmo balão, o modelo engole o primeiro.** Uma pergunta
+  seguida de uma exclamação saía só com a exclamação traduzida. O balão é quebrado em
+  frases, todas as frases de todos os balões vão num lote só, e o resultado é remontado
+  por balão.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
+import re
 from typing import Any
 
+from ..assets import NMT_DIR
 from ..config import TranslationConfig
 from .cache import TranslationCache, resolve_with_cache
 
@@ -42,13 +54,47 @@ TARGET_LANGS = frozenset({"pt", "por", "pt-br", "pob"})
 
 EOS = "</s>"
 
+# O opus-mt-tc-big-en-pt é multi-alvo e exige token inicial de idioma: `>>pob<<` para
+# português brasileiro, `>>por<<` para o europeu.
+LANG_TOKEN = ">>pob<<"
+
+# Fim de frase seguido de espaço. O `~` entra porque é como mangá fecha fala arrastada.
+_SENTENCE_BREAK = re.compile(r"(?<=[.?!~])\s+")
+_PRONOUN_I = re.compile(r"\bi\b")
+# Acima desta fração de letras maiúsculas, o texto é tratado como CAIXA ALTA.
+_UPPER_RATIO = 0.8
+
+
+def sentence_case(text: str) -> str:
+    """`THAT'S ODD~` → `That's odd~`.
+
+    Só mexe em texto majoritariamente maiúsculo: texto que já vem em caixa mista tem
+    informação (nome próprio, sigla) que não vale a pena destruir. Nome próprio em
+    CAIXA ALTA vira minúsculo, e o modelo recoloca a maiúscula sozinho ("jean-luc" →
+    "Jean-Luc") — medido, por isso não há heurística para isso aqui.
+    """
+    letters = [ch for ch in text if ch.isalpha()]
+    if not letters or sum(ch.isupper() for ch in letters) / len(letters) < _UPPER_RATIO:
+        return text
+    sentences = []
+    for sentence in _SENTENCE_BREAK.split(text.lower()):
+        first = next((i for i, ch in enumerate(sentence) if ch.isalpha()), None)
+        if first is not None:
+            sentence = sentence[:first] + sentence[first].upper() + sentence[first + 1 :]
+        sentences.append(sentence)
+    return _PRONOUN_I.sub("I", " ".join(sentences))
+
+
+def split_sentences(text: str) -> list[str]:
+    return [part for part in _SENTENCE_BREAK.split(text.strip()) if part]
+
 
 class NMTTranslator:
     def __init__(self, cfg: TranslationConfig, cache: TranslationCache | None = None) -> None:
         import ctranslate2
         import sentencepiece as spm
 
-        path = Path(cfg.nmt_model_path)
+        path = NMT_DIR
         if not path.is_dir():
             raise FileNotFoundError(
                 f"Modelo de NMT não encontrado em {path.resolve()}. "
@@ -87,8 +133,7 @@ class NMTTranslator:
 
     def _encode(self, text: str) -> list[str]:
         pieces: list[str] = self._sp_source.Encode(text, out_type=str)
-        if self._cfg.nmt_lang_token:
-            pieces = [self._cfg.nmt_lang_token, *pieces]
+        pieces = [LANG_TOKEN, *pieces]
         if self._add_eos:
             pieces.append(EOS)
         return pieces
@@ -99,7 +144,15 @@ class NMTTranslator:
             return [None] * len(texts)
 
         def run(pending: list[int]) -> list[str | None]:
-            batch = [self._encode(texts[i]) for i in pending]
+            # Um lote só com as frases de todos os balões; `spans` lembra quais frases
+            # são de qual balão para remontar depois.
+            sentences: list[str] = []
+            spans: list[tuple[int, int]] = []
+            for i in pending:
+                parts = split_sentences(sentence_case(texts[i]))
+                spans.append((len(sentences), len(sentences) + len(parts)))
+                sentences.extend(parts)
+            batch = [self._encode(sentence) for sentence in sentences]
             try:
                 results = self._translator.translate_batch(
                     batch,
@@ -111,13 +164,19 @@ class NMTTranslator:
                 log.warning("NMT falhou no lote de %d: %s", len(batch), exc)
                 return [None] * len(pending)
 
-            out: list[str | None] = []
+            decoded: list[str | None] = []
             for result in results:
                 if not result.hypotheses:
-                    out.append(None)
+                    decoded.append(None)
                     continue
-                decoded = self._sp_target.Decode(result.hypotheses[0]).strip()
-                out.append(decoded or None)
+                decoded.append(self._sp_target.Decode(result.hypotheses[0]).strip() or None)
+
+            # Uma frase sem tradução invalida o balão inteiro: meia tradução com cara de
+            # completa é pior que deixar o próximo tier tentar.
+            out: list[str | None] = []
+            for start, end in spans:
+                parts = decoded[start:end]
+                out.append(" ".join(parts) if parts and all(parts) else None)  # type: ignore[arg-type]
             return out
 
         return resolve_with_cache(texts, source, target, self._cache, NAME, run)

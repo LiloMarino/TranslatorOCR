@@ -19,12 +19,12 @@ normalizadas em 0..1 e a ambiguidade deixa de existir. Verificado com o modelo r
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import Any
 
 import cv2
 import numpy as np
 
+from ..assets import DETECTOR_PATH
 from ..config import DetectorConfig
 from ..models import BBox, Detection
 from ._ort import check_providers, preload_cuda_dlls, session_providers
@@ -41,7 +41,7 @@ TEXT_KINDS = frozenset({"text_bubble", "text_free"})
 
 class BubbleDetector:
     def __init__(self, cfg: DetectorConfig) -> None:
-        path = Path(cfg.model_path)
+        path = DETECTOR_PATH
         if not path.is_file():
             raise FileNotFoundError(
                 f"Modelo do detector não encontrado em {path.resolve()}. "

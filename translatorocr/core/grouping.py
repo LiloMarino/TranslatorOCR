@@ -75,6 +75,7 @@ def _make_block(lines: list[TextLine], cfg: GroupingConfig) -> TextBlock:
         source=" ".join(ln.text for ln in ordered),
         confidence=min(ln.confidence for ln in ordered),
         lines=ordered,
+        needs_review=any(ln.partial for ln in ordered),
     )
 
 
