@@ -25,9 +25,9 @@ log = logging.getLogger(__name__)
 # DBNet acha região de texto independente do script. Quem é específico de idioma é
 # o reconhecedor.
 #
-# Sobre o PP-OCRv6: os pesos estão no catálogo do rapidocr 3.9.2, mas não são
-# alcançáveis — `LangRec` não tem membro `multi` e a resolução de modelo rejeita a
-# string crua. Verificado em 2026-09. Reavaliar numa versão futura do rapidocr.
+# A geração seguinte não é alcançável nesta versão do rapidocr, e importa porque poderia
+# trazer um detector de linha diferente — que é o estágio que falha. Rastreado como A11
+# em OCR_ANALYSIS.md; não reinvestigue sem ler de lá.
 #
 # Efeito colateral bem-vindo da escolha de `lang="en"`: o charset do reconhecedor é
 # só ASCII, o que torna ideograma irrepresentável na saída.

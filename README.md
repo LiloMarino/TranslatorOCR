@@ -4,7 +4,7 @@ Tradutor de tela ao vivo para Windows: captura uma região da tela, encontra ond
 
 O caso de uso é **ler mangá sem tradução no navegador**, rolando a página normalmente. Jogos com diálogo em inglês funcionam, mas não são o foco.
 
-> **Status: funcionando.** Captura por hotkey (com seleção de área opcional), detector de balão, OCR na GPU com segunda passada para o que o primeiro passe perdeu, gate entre reconhecimento e tradução, e tradução **local** (NMT offline, com a nuvem como reserva), desenhando em overlay click-through. O que ainda não existe é o tracking de scroll contínuo (ver "Modos de operação" abaixo).
+> **Status: funcionando.** Captura por hotkey e modo leitura que acompanha a rolagem (com seleção de área opcional), detector de balão, OCR na GPU com segunda passada para o que o primeiro passe perdeu, gate entre reconhecimento e tradução, e tradução **local** (NMT offline, com a nuvem como reserva), desenhando em overlay click-through. O que está em aberto mora em [OCR_ANALYSIS.md](OCR_ANALYSIS.md) e [ROADMAP.md](ROADMAP.md).
 
 ## Como rodar
 
@@ -22,6 +22,7 @@ TranslatorOCR — tradutor de mangá, inglês → português
   Pronto em 5.3s · tradução offline
 
   F8   traduzir a tela (ou a área selecionada)
+  F6   modo leitura — as traduções acompanham a rolagem e o que entra é traduzido sozinho quando você para
   F11  selecionar área — clique e arraste; um clique sem arrastar volta à tela cheia
   F7   mostrar/esconder a borda da área que o F8 captura
   F9   limpar a tradução da tela
@@ -59,13 +60,23 @@ Havia um `config.toml` com mais de 60 knobs, e quase nenhum era algo que se ajus
 
 ### Diagnóstico
 
-Para conferir se as caixas estão caindo no lugar certo (útil ao mudar a escala do display):
+Duas ferramentas com papéis diferentes.
+
+**Rodar contra uma imagem, sem a tela participar:**
+
+```bash
+uv run python -m translatorocr --image eval/pages/page01.webp
+```
+
+Abre a página numa janela e roda o pipeline direto sobre o arquivo — sem screenshot. A roda do mouse rola a página, então o `F6` também fica testável assim. Como a tela não entra na conta, dá para usar a máquina normalmente enquanto isso, e nenhuma janela que passe na frente estraga o resultado.
+
+**Ver o que a captura enxergou:**
 
 ```bash
 uv run python -m translatorocr --debug-dump
 ```
 
-Isso salva um PNG da captura com os bboxes desenhados por cima, o que torna erro de coordenada visível em vez de "parece torto".
+Salva um PNG da captura de tela com os bboxes desenhados por cima. É o que torna erro de coordenada visível em vez de "parece torto", e a forma de confirmar que o overlay não está entrando na própria foto.
 
 ## Verificação
 
@@ -145,7 +156,7 @@ O **gate** tem duas saídas, não uma. Lixo evidente é descartado antes de paga
 
 **O tier de LLM não é "mais um tier" da cadeia de tradução**, e hoje está desligado. NMT/nuvem quase sempre têm sucesso mesmo em blocos `needs_review` — o problema ali não é falta de tradução, é OCR duvidoso entrando cru. Por isso o LLM foi desenhado como uma **segunda passada**, depois que a tradução rápida já foi desenhada, atualizando a caixa in-place. Medido em página real, ele não compensou (ver "LLM local" em "Como rodar").
 
-O gate de estabilidade, esse sim ainda não existe: jogos animam texto letra por letra, e OCR disparado no meio da animação lê meia frase. Exigir N leituras idênticas consecutivas só faz sentido no modo contínuo, onde há um frame anterior com que comparar.
+O gate de estabilidade, esse sim ainda não existe: jogos animam texto letra por letra, e OCR disparado no meio da animação lê meia frase. Deixou de estar bloqueado — o modo leitura já mantém o quadro anterior — mas continua sem prioridade, porque o caso é de jogo e o foco é mangá (S3 no [ROADMAP.md](ROADMAP.md)).
 
 O upscale antes do OCR está no pipeline, mas desligado por padrão. Com PP-OCRv5, glifo de 11px já sai perfeito no tamanho nativo, e fazer o upscale valer exigiria subir `max_side_len` junto — o que custa 17x mais tempo pelo mesmo resultado. O estágio continua como knob, com default `1.0`.
 
@@ -224,17 +235,19 @@ Os modelos são carregados **uma vez** no ciclo de vida do processo, e o pipelin
 
 **Freeze por hotkey** (v1) — aperta a tecla, o frame congela, o pipeline roda uma vez e as caixas ficam desenhadas até a próxima hotkey. Simples e robusto.
 
-**Tracking contínuo** (v2, planejado) — captura contínua a ~15 fps sobre a região; a cada frame, mede o deslocamento vertical do scroll por correlação de fase (`cv2.phaseCorrelate`, ~1 ms) e translada as caixas já desenhadas pelo delta em vez de re-OCRar, disparando o pipeline só para a faixa de conteúdo novo entrando na viewport — caixas que saem da viewport são descartadas. É o que torna a leitura em rolagem infinita realmente fluida, e o pedaço mais arriscado do projeto: correlação de fase degrada quando o conteúdo muda além de uma translação pura (imagem carregando aos poucos, scroll horizontal, zoom), o que vai exigir um detector de "delta não confiável" que force um re-OCR completo. Só faz sentido plugar depois de o modo freeze estar estável em uso real — não é pré-requisito de nada no resto do projeto.
+**Modo leitura** (`F6`) — captura contínua a ~16 fps sobre a região; a cada quadro mede o deslocamento vertical por correlação de fase e translada as caixas já desenhadas, em vez de reconhecer de novo. Balão já traduzido acompanha o texto e não é retraduzido enquanto se rola; quando a rolagem para, o pipeline roda uma vez e traz o que entrou. Um balão que estava cortado pela borda é relido inteiro quando aparece todo, e a leitura completa substitui a meia tradução.
+
+Medido nesta máquina: a correlação recupera o deslocamento exato até ~400 px (40% da altura da viewport), custa 8 ms na imagem reduzida a 1/4 (contra 92 ms em resolução cheia), e a captura leva 22 ms. O que **não** é translação — zoom, troca de página, conteúdo recarregando — é detectado e limpa a tela, em vez de arrastar caixa para o lugar errado. Para isso funcionar o overlay precisou sair da captura, senão o laço mediria a rolagem contra as próprias caixas paradas e o OCR releria a tradução em português.
 
 ---
 
 ## Limitações conhecidas
 
+O que não tem o que rastrear — decisão de escopo ou realidade da plataforma:
+
 - **Fullscreen exclusivo não mostra overlay.** Nenhuma tecnologia que não seja injeção no swapchain compõe por cima de um jogo em fullscreen exclusivo. Rode o jogo em **borderless windowed**.
 - **Não há modo clipboard.** Foi removido por decisão de escopo, não por omissão: era um polling de `pyperclip` que duplicava o Textractor sem o hooking de memória que é o diferencial dele. Para texto copiável, use o Textractor.
 - **Windows apenas.** `RegisterHotKey`, os flags `WS_EX_*` do overlay e o DPI awareness são específicos da plataforma.
-- **Sem gate de estabilidade ainda.** O overlay desenha o primeiro resultado de OCR que chegar. Para mangá parado isso é suficiente; para jogo que anima texto letra por letra, não. Só faz sentido no modo de tracking contínuo, onde existe frame anterior para comparar — por isso depende dele entrar primeiro.
-- **O detector é treinado em mangá/HQ, e fora dessa distribuição rende menos.** Numa tela de IDE ele dispara `text_free` em quase toda a interface: o ganho medido foi de 102 para 45 blocos — real, mas vindo de agrupar melhor, não de descartar UI (só 1 linha caiu fora de todas as regiões). Na página de mangá, texto de interface em volta (título de janela, menu do site) ainda pode virar bloco — `F11` restringe a captura à página.
-- **Balão curto em tela cheia fica no limiar do detector.** O detector espreme a captura inteira em 640x640; numa tela 1920x1080 com a página reduzida, um balão de duas palavras curtas vira ~23x7 px na entrada do modelo e às vezes fica de fora. Selecionar a área da página com `F11` aumenta a escala e resolve. Detectar em ladrilhos quadrados foi medido e não ajudou.
-- **`ODD~` em tamanho original.** O único erro de leitura que sobra nas páginas de teste: o reconhecedor lê a palavra seguida de til como `~oo`, com confiança baixa, e o balão sai com borda âmbar. Nas escalas de leitura em tela ele sai certo.
-- **Balão cortado pela borda da captura** é traduzido pela metade (e sai com borda âmbar). É o que o tracking contínuo resolve de verdade.
+- **O overlay não entra na captura, e por isso não tem alpha por pixel.** A janela é recortada na forma das caixas e a translucidez é constante — o canto arredondado fica com a borda mais dura e a moldura da área de captura é contínua, não tracejada. É o preço de o app nunca fotografar as próprias caixas (ver `ui/overlay.py`).
+
+O que **está em aberto** — falha de leitura, achado de código ainda sem correção, melhoria já planejada — não mora mais aqui: mora em [OCR_ANALYSIS.md](OCR_ANALYSIS.md) (o porquê de cada um) e em [ROADMAP.md](ROADMAP.md) (o que fazer e em que estado está). Isso inclui o balão curto que some em página reduzida, o gate de estabilidade e o tradutor rodando em CPU.
