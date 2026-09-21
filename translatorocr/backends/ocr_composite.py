@@ -45,6 +45,7 @@ import cv2
 import numpy as np
 
 from ..config import DetectorConfig
+from ..geometry import area, intersection_area, overlap_fraction
 from ..models import BBox, Detection, TextLine
 from .base import DetectorBackend, OCRBackend
 from .detect_bubble import TEXT_KINDS
@@ -57,29 +58,19 @@ _MOSAIC_GAP = 20
 _WHITE = (255, 255, 255)
 
 
-def _intersection_area(a: BBox, b: BBox) -> int:
-    width = min(a[2], b[2]) - max(a[0], b[0])
-    height = min(a[3], b[3]) - max(a[1], b[1])
-    return width * height if width > 0 and height > 0 else 0
-
-
-def _area(b: BBox) -> int:
-    return max(0, b[2] - b[0]) * max(0, b[3] - b[1])
-
-
 def assign_region(bbox: BBox, regions: list[Detection], min_overlap: float) -> int | None:
     """Índice da região que mais cobre o bbox, ou None se nenhuma cobre o bastante.
 
     O critério é a fração da **linha** coberta, e não da região: uma linha pequena dentro
     de um balão grande tem que casar, e é o contrário que precisa ser rejeitado.
     """
-    area = max(1, _area(bbox))
+    box_area = max(1, area(bbox))
     best_index, best_area = None, 0
     for index, region in enumerate(regions):
-        overlap = _intersection_area(bbox, region.bbox)
+        overlap = intersection_area(bbox, region.bbox)
         if overlap > best_area:
             best_index, best_area = index, overlap
-    return best_index if best_area / area >= min_overlap else None
+    return best_index if best_area / box_area >= min_overlap else None
 
 
 def merge_overlapping(regions: list[Detection], threshold: float) -> list[Detection]:
@@ -95,8 +86,7 @@ def merge_overlapping(regions: list[Detection], threshold: float) -> list[Detect
         for i in range(len(merged)):
             for j in range(i + 1, len(merged)):
                 a, b = merged[i].bbox, merged[j].bbox
-                smaller = max(1, min(_area(a), _area(b)))
-                if _intersection_area(a, b) / smaller < threshold:
+                if overlap_fraction(a, b) < threshold:
                     continue
                 union = (min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3]))
                 keep = merged[i] if merged[i].score >= merged[j].score else merged[j]

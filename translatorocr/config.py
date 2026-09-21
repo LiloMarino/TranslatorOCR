@@ -102,6 +102,43 @@ class DetectorConfig:
 
 
 @dataclass
+class ScrollConfig:
+    """Modo de leitura: acompanha a rolagem em vez de traduzir um quadro só.
+
+    A cada quadro mede-se quanto a página andou por correlação de fase e translada-se o
+    que já está desenhado, em vez de reconhecer de novo. O pipeline só roda quando a
+    rolagem para — é o que deixa a leitura fluida e, de quebra, resolve o balão cortado
+    pela borda: quando ele aparece inteiro, é relido inteiro.
+    """
+
+    # ~16 fps. Medido nesta máquina: captura MSS de tela cheia 22 ms + correlação 8 ms,
+    # então 60 ms deixa folga de sobra para o resto do laço.
+    interval_ms: int = 60
+    # A correlação roda na imagem reduzida: 8 ms a 1/4 contra 92 ms em resolução cheia,
+    # com a mesma precisão (erro < 0.5 px num deslocamento de 60 px).
+    downscale: float = 0.25
+    # Resposta da correlação, que serve de confiança. Medido: 0.97 para 60 px, 0.88 para
+    # 150 px, 0.41 para 400 px (o limite útil, 40% da altura da viewport) e 0.01 quando
+    # o conteúdo mudou demais para ser translação. Zoom de 15% cai para 0.035.
+    min_response: float = 0.30
+    # Deslocamento horizontal acima disto não é rolagem vertical: é scroll lateral ou
+    # mudança de layout, e translação vertical não descreve o que aconteceu.
+    max_dx: float = 8.0
+    # Piso de textura (desvio padrão do quadro reduzido). **Não é redundante com
+    # `min_response`**: uma área totalmente lisa — o vão branco entre quadros de um
+    # webtoon — devolve deslocamento zero com resposta 0.99, confiante e errada. Sem
+    # este piso, as caixas congelariam enquanto a página rola.
+    min_texture: float = 4.0
+    # Abaixo disto o quadro conta como parado.
+    still_dy: float = 1.0
+    # Quantos quadros parados disparam o pipeline (4 x 60 ms = ~1/4 de segundo).
+    settle_frames: int = 4
+    # Sobreposição mínima, como fração da menor caixa, para considerar que uma leitura
+    # nova e uma antiga são o mesmo balão.
+    merge_overlap: float = 0.5
+
+
+@dataclass
 class GateConfig:
     """Portão entre reconhecimento e tradução."""
 
@@ -203,6 +240,8 @@ class HotkeyConfig:
     # `RegisterHotKey` recusou com erro 1409. F7 não colide com nada do app nem com
     # essas reservas comuns.
     show_region_outline: str = "F7"
+    # Liga/desliga o modo de leitura, que acompanha a rolagem (ver `ScrollConfig`).
+    scroll_mode: str = "F6"
 
 
 @dataclass
@@ -212,6 +251,7 @@ class Config:
     detector: DetectorConfig = field(default_factory=DetectorConfig)
     gate: GateConfig = field(default_factory=GateConfig)
     grouping: GroupingConfig = field(default_factory=GroupingConfig)
+    scroll: ScrollConfig = field(default_factory=ScrollConfig)
     translation: TranslationConfig = field(default_factory=TranslationConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
     overlay: OverlayConfig = field(default_factory=OverlayConfig)
