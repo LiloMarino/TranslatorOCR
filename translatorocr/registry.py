@@ -112,10 +112,12 @@ def build_llm(config: Config) -> LLMBackend | None:
         return None
 
 
-def build_pipeline(config: Config) -> Pipeline:
+def build_pipeline(config: Config, capture: CaptureBackend | None = None) -> Pipeline:
+    """`capture` pronto substitui o backend de tela — é assim que o `--image` roda o
+    pipeline inteiro sobre um arquivo, sem a tela participar."""
     return Pipeline(
         config=config,
-        capture=build_capture(config),
+        capture=capture or build_capture(config),
         ocr=build_ocr(config),
         translator=build_translator(config),
         llm=build_llm(config),

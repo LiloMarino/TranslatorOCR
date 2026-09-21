@@ -129,8 +129,10 @@ class ScrollConfig:
     # webtoon — devolve deslocamento zero com resposta 0.99, confiante e errada. Sem
     # este piso, as caixas congelariam enquanto a página rola.
     min_texture: float = 4.0
-    # Abaixo disto o quadro conta como parado.
-    still_dy: float = 1.0
+    # Diferença média de nível de cinza entre dois quadros abaixo da qual a tela conta
+    # como parada. Separa "nada aconteceu" de "mudou e não foi rolagem" — a confiança do
+    # deslocamento sozinha não separa, porque tela parada e lisa também reprova nela.
+    min_change: float = 0.5
     # Quantos quadros parados disparam o pipeline (4 x 60 ms = ~1/4 de segundo).
     settle_frames: int = 4
     # Sobreposição mínima, como fração da menor caixa, para considerar que uma leitura
@@ -212,11 +214,15 @@ class LLMConfig:
 
 @dataclass
 class OverlayConfig:
-    box_color: tuple[int, int, int, int] = (0, 0, 0, 205)
+    # Translucidez da janela inteira, não de cada cor: quem desenha a forma é a região
+    # do Win32 (ver `ui/overlay.py`). O alpha por pixel do Qt teve que sair porque o
+    # Windows recusa tirar da captura uma janela que o usa.
+    window_alpha: int = 205
+    box_color: tuple[int, int, int] = (0, 0, 0)
     text_color: tuple[int, int, int] = (245, 245, 245)
-    outline_color: tuple[int, int, int, int] = (0, 0, 0, 180)
+    outline_color: tuple[int, int, int] = (0, 0, 0)
     # Borda das caixas que o gate marcou como duvidosas (âmbar).
-    review_color: tuple[int, int, int, int] = (230, 160, 30, 230)
+    review_color: tuple[int, int, int] = (230, 160, 30)
     corner_radius: int = 6
     padding: int = 6
     min_font_pt: int = 7

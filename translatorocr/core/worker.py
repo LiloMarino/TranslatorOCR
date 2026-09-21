@@ -31,12 +31,19 @@ class PipelineWorker(QObject):
     loading_progress = pyqtSignal(str)
     finished_loading = pyqtSignal(float)  # segundos desde o início da carga
 
-    def __init__(self, config: Config, warmup_region: Region | None = None) -> None:
+    def __init__(
+        self,
+        config: Config,
+        warmup_region: Region | None = None,
+        capture=None,
+    ) -> None:
         super().__init__()
         self._cfg = config
         # A mesma região que a captura vai usar: o aquecimento só vale para o formato
         # de entrada que ele viu (ver `Pipeline.warmup`).
         self._warmup_region = warmup_region
+        # Backend de captura pronto, quando não é a tela (modo `--image`).
+        self._capture = capture
         self._pipeline = None
 
     @pyqtSlot()
@@ -50,7 +57,7 @@ class PipelineWorker(QObject):
         self._download_missing()
         self.loading_progress.emit("Carregando modelos...")
         try:
-            self._pipeline = build_pipeline(self._cfg)
+            self._pipeline = build_pipeline(self._cfg, self._capture)
             self._pipeline.warmup(self._warmup_region)
         except Exception as exc:
             log.exception("Falha ao inicializar o pipeline")
@@ -124,9 +131,9 @@ class PipelineWorker(QObject):
 class WorkerThread:
     """Dono do par QThread + PipelineWorker, com desligamento ordenado."""
 
-    def __init__(self, config: Config, warmup_region: Region | None = None) -> None:
+    def __init__(self, config: Config, warmup_region: Region | None = None, capture=None) -> None:
         self.thread = QThread()
-        self.worker = PipelineWorker(config, warmup_region)
+        self.worker = PipelineWorker(config, warmup_region, capture)
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.initialize)
 
