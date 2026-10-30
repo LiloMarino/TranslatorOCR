@@ -14,6 +14,7 @@ import cv2
 from ..backends.base import CaptureBackend, LLMBackend, OCRBackend, TranslatorBackend
 from ..config import Config
 from ..models import Capture, Region, TextBlock
+from .ledger import BlockLedger
 
 log = logging.getLogger(__name__)
 
@@ -26,12 +27,14 @@ class Pipeline:
         ocr: OCRBackend,
         translator: TranslatorBackend,
         llm: LLMBackend | None = None,
+        ledger: BlockLedger | None = None,
     ) -> None:
         self._cfg = config
         self._capture = capture
         self._ocr = ocr
         self._translator = translator
         self._llm = llm
+        self._ledger = ledger
 
     def _grab(self, region: Region | None) -> Capture | None:
         shot = self._capture.grab(region)
@@ -85,6 +88,9 @@ class Pipeline:
         from .grouping import group
 
         started = time.perf_counter()
+        # O deslocamento do registro é o de antes da captura: as posições dos blocos
+        # descrevem a tela como ela estava quando o quadro foi tirado.
+        reading = self._ledger.begin() if self._ledger else None
         shot = self._grab(region)
         if shot is None:
             return []
@@ -104,25 +110,32 @@ class Pipeline:
         detected = len(blocks)
         blocks = apply_gate(blocks, self._cfg.gate, self._cfg.ocr.lang)
 
-        if blocks:
+        # Balão já traduzido e lido inteiro volta do registro com a tradução que tinha;
+        # só o que o registro não conhece (ou conhece incompleto) vai para o tradutor.
+        pending = self._ledger.reconcile(reading, blocks) if self._ledger and reading else blocks
+        if pending:
             translations = self._translator.translate(
-                [b.source for b in blocks],
+                [b.source for b in pending],
                 self._cfg.translation.source_lang,
                 self._cfg.translation.target_lang,
             )
             # strict=True: o contrato de TranslatorBackend é devolver uma entrada por
             # texto, preservando a ordem. Um backend que quebrasse isso truncaria em
             # silêncio e desalinharia tradução com bloco — melhor estourar.
-            for block, translated in zip(blocks, translations, strict=True):
+            for block, translated in zip(pending, translations, strict=True):
                 block.translated = translated
+            if self._ledger and reading:
+                self._ledger.record(reading, pending)
         t_translate = time.perf_counter()
 
         log.info(
-            "pipeline: %d linhas → %d blocos (%d após o gate) | "
+            "pipeline: %d linhas → %d blocos (%d após o gate, %d traduzidos, %d do registro) | "
             "captura %.2fs · ocr %.2fs · tradução %.2fs",
             len(lines),
             detected,
             len(blocks),
+            len(pending),
+            len(blocks) - len(pending),
             t_capture - started,
             t_ocr - t_capture,
             t_translate - t_ocr,

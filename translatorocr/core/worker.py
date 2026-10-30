@@ -14,6 +14,7 @@ from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 from .. import assets
 from ..config import Config
 from ..models import Region
+from .ledger import BlockLedger
 
 log = logging.getLogger(__name__)
 
@@ -36,6 +37,7 @@ class PipelineWorker(QObject):
         config: Config,
         warmup_region: Region | None = None,
         capture=None,
+        ledger: BlockLedger | None = None,
     ) -> None:
         super().__init__()
         self._cfg = config
@@ -44,6 +46,8 @@ class PipelineWorker(QObject):
         self._warmup_region = warmup_region
         # Backend de captura pronto, quando não é a tela (modo `--image`).
         self._capture = capture
+        # O registro é do `App`, que o alimenta com a rolagem; o pipeline o consulta.
+        self._ledger = ledger
         self._pipeline = None
 
     @pyqtSlot()
@@ -57,7 +61,7 @@ class PipelineWorker(QObject):
         self._download_missing()
         self.loading_progress.emit("Carregando modelos...")
         try:
-            self._pipeline = build_pipeline(self._cfg, self._capture)
+            self._pipeline = build_pipeline(self._cfg, self._capture, self._ledger)
             self._pipeline.warmup(self._warmup_region)
         except Exception as exc:
             log.exception("Falha ao inicializar o pipeline")
@@ -131,9 +135,15 @@ class PipelineWorker(QObject):
 class WorkerThread:
     """Dono do par QThread + PipelineWorker, com desligamento ordenado."""
 
-    def __init__(self, config: Config, warmup_region: Region | None = None, capture=None) -> None:
+    def __init__(
+        self,
+        config: Config,
+        warmup_region: Region | None = None,
+        capture=None,
+        ledger: BlockLedger | None = None,
+    ) -> None:
         self.thread = QThread()
-        self.worker = PipelineWorker(config, warmup_region, capture)
+        self.worker = PipelineWorker(config, warmup_region, capture, ledger)
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.initialize)
 

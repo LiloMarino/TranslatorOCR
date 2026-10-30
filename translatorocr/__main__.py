@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import QApplication
 
 from .backends._ort import preload_cuda_dlls
 from .config import Config
+from .core.ledger import BlockLedger
 from .core.scroll import ScrollThread
 from .core.tracker import merge_tracked, shift_blocks
 from .core.worker import WorkerThread
@@ -25,6 +26,7 @@ from .models import Region
 from .ui import console
 from .ui.commands import Command
 from .ui.coords import screen_physical_region
+from .ui.foreground import foreground_title
 from .ui.hotkey import GlobalHotkeys
 from .ui.overlay import OverlayWindow
 from .ui.selection import SelectionOverlay
@@ -175,7 +177,10 @@ class App(QObject):
         ]
         self.quit_command = Command(keys.quit, "Sair", "sair", self.quit)
 
-        self.worker = WorkerThread(config, self._region_for_capture(), capture)
+        # Histórico do que já foi lido: o worker o consulta antes de traduzir, e a GUI o
+        # alimenta com a rolagem e com os momentos em que o rastreio se perde.
+        self.ledger = BlockLedger(config.ledger, config.scroll)
+        self.worker = WorkerThread(config, self._region_for_capture(), capture, self.ledger)
         self.worker.worker.ready.connect(self._on_ready)
         self.worker.worker.refined.connect(self._on_refined)
         self.worker.worker.failed.connect(self._on_failed)
@@ -243,6 +248,11 @@ class App(QObject):
         if not self.overlay.hidden_from_capture:
             # O overlay entraria na foto e o OCR releria a própria tradução.
             self.overlay.clear()
+        # Lido a cada leitura, e não a cada quadro do rastreio.
+        self.ledger.observe_title(foreground_title())
+        if not self._scroll_on:
+            # Sem rastreio de rolagem não há como comparar posições com a leitura anterior.
+            self.ledger.lost()
         self.tray.set_state("Traduzindo...")
         self._capture_started = time.perf_counter()
         self._capture_offset = self._scroll_offset
@@ -278,6 +288,7 @@ class App(QObject):
     def _on_area_selected(self, region: Region | None) -> None:
         self._selected_region = region
         self._selector = None
+        self.ledger.lost()
         self.scroll_region.emit(self._region_for_capture())
         if self._outline_visible:
             self._show_outline()
@@ -300,6 +311,7 @@ class App(QObject):
         # A área selecionada era de outra tela; mantê-la capturaria o monitor errado.
         self._selected_region = None
         self._current_blocks = []
+        self.ledger.lost()
         self.overlay.clear()
         self.overlay.cover_screen(screen)
         self.scroll_region.emit(self._region_for_capture())
@@ -330,6 +342,7 @@ class App(QObject):
         if self._scroll_on:
             self._scroll_offset = 0
             self._capture_offset = 0
+            self.ledger.lost()
             self.scroll_region.emit(self._region_for_capture())
             self.scroll_start.emit()
             self.tray.set_state("Acompanhando a rolagem")
@@ -343,10 +356,14 @@ class App(QObject):
 
     def _on_scrolled(self, dy: int) -> None:
         self._scroll_offset += dy
-        if not self._current_blocks:
-            return
-        self._current_blocks = shift_blocks(self._current_blocks, dy, self._region_for_capture())
-        self.overlay.set_blocks(self._current_blocks)
+        self.ledger.scrolled(dy)
+        region = self._region_for_capture()
+        had_blocks = bool(self._current_blocks)
+        shifted = shift_blocks(self._current_blocks, dy, region)
+        # O que o registro conhece e voltou à viewport é redesenhado sem OCR.
+        self._current_blocks = [*shifted, *self.ledger.restore(region, shifted)]
+        if had_blocks or self._current_blocks:
+            self.overlay.set_blocks(self._current_blocks)
 
     def _on_settled(self) -> None:
         if not self._scroll_on:
@@ -361,6 +378,7 @@ class App(QObject):
     def _on_lost(self) -> None:
         """Zoom, troca de página, conteúdo recarregando: o que está desenhado não
         descreve mais a tela, e arrastar as caixas seria pior que limpar."""
+        self.ledger.lost()
         if self._current_blocks:
             self._current_blocks = []
             self.overlay.clear()

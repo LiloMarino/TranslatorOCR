@@ -4,7 +4,7 @@ Tradutor de tela ao vivo para Windows: captura uma região da tela, encontra ond
 
 O caso de uso é **ler mangá sem tradução no navegador**, rolando a página normalmente. Jogos com diálogo em inglês funcionam, mas não são o foco.
 
-> **Status: funcionando.** Captura por hotkey e modo leitura que acompanha a rolagem (com seleção de área opcional), detector de balão, OCR na GPU com segunda passada para o que o primeiro passe perdeu, gate entre reconhecimento e tradução, e tradução **local** (NMT offline, com a nuvem como reserva), desenhando em overlay click-through. O que está em aberto mora em [OCR_ANALYSIS.md](OCR_ANALYSIS.md) e [ROADMAP.md](ROADMAP.md).
+> **Status: funcionando.** Captura por hotkey e modo leitura que acompanha a rolagem (com seleção de área opcional), detector de balão, OCR na GPU com segunda passada para o que o primeiro passe perdeu, gate entre reconhecimento e tradução, e tradução pela **nuvem** gratuita (com o NMT offline como reserva), desenhando em overlay click-through. O que está em aberto mora em [OCR_ANALYSIS.md](OCR_ANALYSIS.md) e [ROADMAP.md](ROADMAP.md).
 
 ## Como rodar
 
@@ -13,13 +13,13 @@ uv sync
 uv run python -m translatorocr
 ```
 
-Não há nada para configurar. Na primeira execução o app baixa sozinho o detector de balão e o tradutor offline (~640 MB), com o progresso no console; os modelos do RapidOCR também vêm sozinhos. Sem rede, o app ainda abre: sem o detector ele agrupa por proximidade, e sem o NMT a tradução vai para a nuvem — com aviso, nunca crash. `uv run scripts/fetch_models.py` baixa os mesmos modelos à mão (ou força um re-download com `--force`).
+Não há nada para configurar. Na primeira execução o app baixa sozinho o detector de balão e o tradutor offline (~640 MB), com o progresso no console; os modelos do RapidOCR também vêm sozinhos. Sem rede, o app ainda abre: sem o detector ele agrupa por proximidade, e sem rede a tradução cai para o NMT offline — com aviso, nunca crash. `uv run scripts/fetch_models.py` baixa os mesmos modelos à mão (ou força um re-download com `--force`).
 
 Ao abrir, o console mostra só isto:
 
 ```
 TranslatorOCR — tradutor de mangá, inglês → português
-  Pronto em 5.3s · tradução offline
+  Pronto em 5.3s
 
   F8   traduzir a tela (ou a área selecionada)
   F6   modo leitura — as traduções acompanham a rolagem e o que entra é traduzido sozinho quando você para
@@ -133,10 +133,10 @@ flowchart TD
     GATE -->|"ok / duvidoso"| CACHE{"<b>Cache SQLite</b><br/>hash do texto"}
 
     CACHE -->|"hit"| DRAW
-    CACHE -->|"miss"| NMT["<b>Tier 1 — NMT local</b><br/>CTranslate2 + opus-mt · CPU int8<br/>caixa de frase · uma frase por vez"]
-    NMT -->|"não coberto"| CLOUD["<b>Tier 2 — nuvem</b><br/>endpoint gratuito<br/>paralelo · backoff · guarda anti-erro"]
-    NMT --> DRAW["<b>Overlay click-through</b><br/>caixa escura no bbox<br/>borda âmbar se duvidoso"]
-    CLOUD --> DRAW
+    CACHE -->|"miss"| CLOUD["<b>Tier 1 — nuvem</b><br/>endpoint gratuito<br/>paralelo · backoff · guarda anti-erro"]
+    CLOUD -->|"sem rede / rate limit"| NMT["<b>Tier 2 — NMT local</b><br/>CTranslate2 + opus-mt · CPU int8<br/>caixa de frase · uma frase por vez"]
+    CLOUD --> DRAW["<b>Overlay click-through</b><br/>caixa escura no bbox<br/>borda âmbar se duvidoso"]
+    NMT --> DRAW
 
     OCR -.-> STAB{"Gate de<br/>estabilidade"}
     GATE -.->|"needs_review, depois do 1º desenho"| LLM["LLM local (desligado)<br/>Qwen3-4B Q4_K_M<br/>corrige OCR + traduz"]
@@ -215,10 +215,10 @@ Os modelos são carregados **uma vez** no ciclo de vida do processo, e o pipelin
 | Upscale                  | **Lanczos, 1.0x**                                        | Desligado por padrão *depois de medir* — ver a nota na Arquitetura                                                                                                                                                                                                                                |
 | OCR                      | **RapidOCR** · PP-OCRv5 · `onnxruntime-gpu`              | Mesmos modelos do PaddleOCR sem o inferno de instalar `paddlepaddle-gpu` no Windows/Python 3.13. Rec `en` mantém o charset em ASCII, o que torna ideograma irrepresentável na saída                                                                                                              |
 | Cache                    | **SQLite** por hash do texto de origem                   | Fala repetida é instantânea e sempre traduz igual                                                                                                                                                                                                                                                 |
-| Tradução                 | Endpoint web gratuito, em paralelo                       | O mesmo que Translumo e Textractor usam na prática. Com guarda contra a página de erro que o endpoint devolve sob rate limit                                                                                                                                                                     |
+| Tradução                 | Endpoint web gratuito, em paralelo                       | Tier principal: traduz a fala inteira, com contexto da frase. O mesmo que Translumo e Textractor usam na prática. Com guarda contra a página de erro que o endpoint devolve sob rate limit                                                                                                                                                                     |
 | Detecção de balão        | **RT-DETR-v2** (`ogkalu/comic-text-and-bubble-detector`) | Devolve `bubble`/`text_bubble`/`text_free`, então a fronteira do bloco vem do modelo em vez de heurística de proximidade. NMS-free, com o pós-processamento embutido no grafo ONNX. Apache-2.0                                                                                                   |
 | Gate reconhecer→traduzir | Charset + confiança + heurística de forma                | Lixo é descartado antes de pagar tradução; o duvidoso segue marcado e ganha borda âmbar no overlay                                                                                                                                                                                                |
-| Tradução rápida          | **CTranslate2 + opus-mt-tc-big-en-pt**                   | Tier primário: 50 balões em 0.82 s em **CPU**, contra 11.4 s da nuvem. Ilimitado e offline. Roda em CPU de propósito — ver a nota abaixo. Recebe o balão em caixa de frase e uma frase por vez — ver a nota abaixo                                                                               |
+| Tradução rápida          | **CTranslate2 + opus-mt-tc-big-en-pt**                   | Reserva offline: 50 balões em 0.82 s em **CPU**, contra 11.4 s da nuvem. Ilimitado e offline. Roda em CPU de propósito — ver a nota abaixo. Recebe o balão em caixa de frase e uma frase por vez — ver a nota abaixo                                                                               |
 | Tradução com correção    | **Qwen3-4B Q4_K_M** (`llama-cpp-python`, GGUF), desligado | Corrige artefato de OCR e traduz num passo só, com contexto rolante e glossário. Escolhido contra o Qwen3-8B, mas em página real de mangá não compensou: nunca aciona em página limpa, e forçado traduziu pior que o NMT                                                                          |
 
 **O NMT roda em CPU por decisão, não por limitação.** O `ctranslate2.dll` carrega `cublas64_12.dll` por nome, e este venv tem CUDA 13 (veio do `onnxruntime-gpu`). Ligar a GPU custaria o wheel `nvidia-cublas-cu12` de ~553 MB mais um `os.add_dll_directory` manual, para então disputar VRAM com o OCR e o detector. Em CPU são 0.82 s para 50 balões — 14x mais rápido que a nuvem — e a tradução ainda roda concorrente com a inferência de GPU.
@@ -236,6 +236,8 @@ Os modelos são carregados **uma vez** no ciclo de vida do processo, e o pipelin
 **Freeze por hotkey** (v1) — aperta a tecla, o frame congela, o pipeline roda uma vez e as caixas ficam desenhadas até a próxima hotkey. Simples e robusto.
 
 **Modo leitura** (`F6`) — captura contínua a ~16 fps sobre a região; a cada quadro mede o deslocamento vertical por correlação de fase e translada as caixas já desenhadas, em vez de reconhecer de novo. Balão já traduzido acompanha o texto e não é retraduzido enquanto se rola; quando a rolagem para, o pipeline roda uma vez e traz o que entrou. Um balão que estava cortado pela borda é relido inteiro quando aparece todo, e a leitura completa substitui a meia tradução.
+
+**Registro de balões** — o que já foi lido fica guardado com a posição na tira (y da tela menos a rolagem acumulada), mesmo depois de sair da tela. Cada leitura nova é casada com o registro por posição, não por texto: balão já traduzido e lido inteiro mantém o texto e a tradução da primeira leitura, ainda que o OCR leia diferente dessa vez, e só o que o registro não conhece vai para o tradutor. Rolar de volta redesenha os balões conhecidos na hora, sem OCR. A posição só vale enquanto o rastreio acompanha a rolagem; quando ele se perde, o trecho seguinte reancora no antigo se reconhecer o mesmo texto, ou abre um novo. O registro recomeça quando o título da janela em primeiro plano muda (outro capítulo) ou passam 10 minutos sem leitura. Ele também entrega os últimos balões em ordem de leitura, que serão o contexto de tradução (nenhum tier o consome ainda). A lógica está em [core/ledger.py](translatorocr/core/ledger.py).
 
 Medido nesta máquina: a correlação recupera o deslocamento exato até ~400 px (40% da altura da viewport), custa 8 ms na imagem reduzida a 1/4 (contra 92 ms em resolução cheia), e a captura leva 22 ms. O que **não** é translação — zoom, troca de página, conteúdo recarregando — é detectado e limpa a tela, em vez de arrastar caixa para o lugar errado. Para isso funcionar o overlay precisou sair da captura, senão o laço mediria a rolagem contra as próprias caixas paradas e o OCR releria a tradução em português.
 

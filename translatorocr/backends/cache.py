@@ -16,9 +16,9 @@ from pathlib import Path
 _WHITESPACE = re.compile(r"\s+")
 
 # Entra na chave. Subir quando uma mudança de tradução tornar as entradas antigas
-# piores que traduzir de novo — v2: o NMT passou a traduzir em caixa de frase e por
-# frase, e o que estava em cache eram traduções feitas em CAIXA ALTA.
-_KEY_VERSION = "2"
+# piores que traduzir de novo: trocar o tier principal, ou o jeito de preparar o texto
+# (caixa de frase, uma frase por vez).
+_KEY_VERSION = "3"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS translations (

@@ -4,7 +4,7 @@
 >
 > **Legenda:** `A#` achado de leitura de código/medição · `P#` problema relatado · `I#` ideia pesada como candidata · `S#` síntese causal.
 >
-> **Última mudança (2026-09-21):** primeira rodada. Catalogada a investigação de por que balões somem ou saem errados lendo mangá no navegador, com a causa raiz do acoplamento entre recortes na segunda passada de OCR (A3) e duas tentativas de correção medidas e revertidas.
+> **Última mudança (2026-10-30):** segunda rodada. Entram a tradução literal e sem contexto (P4), as teclas demais (P5), os achados de código por trás deles (A12–A18) e as ideias da retomada (I5–I14): gabarito por professores, Google como tradutor principal, registro de balões e três teclas.
 
 ## Contexto e escopo
 
@@ -64,6 +64,38 @@ Vinha registrado como armadilha no `CLAUDE.md`. O `ctranslate2.dll` carrega `cub
 Vinha registrado como comentário em `ocr_rapid.py`. Os pesos da geração seguinte estão no catálogo do `rapidocr` 3.9.2, mas não são alcançáveis: o enum de idioma do reconhecedor não tem o membro correspondente e a resolução de modelo rejeita a string crua. Verificado em 2026-09. Importa porque uma geração nova poderia trazer um **detector de linha** diferente, que é exatamente o estágio que falha em A2 — ao contrário de trocar de reconhecedor, que foi medido e não ajuda (I1).
 ⚠️ **Confirmado. Reavaliar quando o pacote subir de versão.**
 
+**A12 — A leitura nova substitui a antiga mesmo quando a antiga estava certa**
+`core/tracker.py:merge_tracked`. Na junção do que sobreviveu à rolagem com o que acabou de ser lido, a leitura nova manda; a única exceção é o balão novo cortado pela borda diante de um antigo lido inteiro. Um balão antigo lido certo, relido agora com uma letra trocada, vira a leitura trocada, e a tradução já desenhada muda junto.
+✅ **Resolvido via I13 — o registro mantém a primeira leitura inteira de cada balão.**
+
+**A13 — O cache de tradução só acerta com o texto idêntico**
+`backends/cache.py:make_key`. A chave é o hash do texto com espaços colapsados, e só isso. Uma leitura de OCR que difere em uma letra é um miss, e o mesmo balão é traduzido de novo (e pode sair diferente).
+✅ **Resolvido via I13 — a posição passa na frente do cache, então uma leitura com letra diferente não dispara nova tradução. A chave do cache segue sendo o texto.**
+
+**A14 — O balão que sai da tela é descartado, e nada guarda o que já foi lido**
+`core/tracker.py:shift_blocks`. Ao rolar, a caixa que deixa a viewport é removida da lista e some do app. Rolar de volta obriga a ler e traduzir tudo de novo, e nenhum tradutor tem como saber quais foram as falas anteriores da página.
+✅ **Resolvido via I13 — o registro guarda os balões que saíram da tela e os redesenha ao rolar de volta.**
+
+**A15 — O contexto de tradução só existe no tier LLM, e na ordem de chegada**
+`backends/translate_nmt.py`, `translate_cloud.py`, `translate_llm.py`. O NMT traduz frase por frase e a nuvem traduz um texto por chamada: nenhum dos dois vê a fala vizinha. O tier LLM tem `context_window`, mas guarda as últimas traduções na ordem em que chegaram ao tradutor, não na ordem de leitura da página.
+⚠️ **Confirmado. Expressão idiomática e fala que continua a anterior saem traduzidas palavra por palavra.**
+
+**A16 — A ordem padrão dos tiers põe o tradutor mais literal na frente**
+`config.py:TranslationConfig.tiers`. O default é `["nmt", "cloud"]`, escolhido pela latência (0.8 s para 50 blocos contra 11.4 s). A nuvem só recebe o que o NMT não traduziu, então na prática nunca é usada.
+✅ **Resolvido via I9 — o default passou a ser `["cloud", "nmt"]`.**
+
+**A19 — Com a nuvem na frente, cada rodada paga os retries antes de cair no NMT**
+`backends/translate_cloud.py`, `backends/chain.py`. O endpoint gratuito bloqueia por rate limit (medido em 2026-10-30: depois de uma rajada de 40 blocos, até chamadas sequenciais de 1 por segundo voltaram 429). O `ChainTranslator` não lembra que a nuvem falhou: cada rodada tenta de novo, esgota as 3 tentativas com backoff e só então entrega ao NMT. Medido nessa condição: 12.4 s para 5 blocos e 45.6 s para 25, todos traduzidos, mas pelo NMT. Além disso, o que o NMT traduz nesse intervalo fica no cache sob a mesma chave, e a nuvem não o refaz quando volta.
+⚠️ **Confirmado, sem correção proposta.**
+
+**A17 — Seis comandos em teclas de função globais, uma por comando**
+`config.py:HotkeyConfig`, `__main__.py` (lista `commands`). F6, F7, F8, F9, F10 e F11 são registradas com `RegisterHotKey`, que consome a tecla no sistema inteiro: o navegador com a página em foco perde o F6 (barra de endereço) e o F11 (tela cheia). `ui/hotkey.py` já aceita modificador, mas nenhum default usa.
+⚠️ **Confirmado. Ver I11.**
+
+**A18 — A área selecionada vive só na memória do processo**
+`__main__.py:App._selected_region`. Ao fechar o app, a área escolhida com a seleção se perde e a próxima sessão começa na tela cheia.
+⚠️ **Confirmado. Ver I12.**
+
 ---
 
 ## Problemas (P#)
@@ -76,6 +108,12 @@ Quando o balão está cortado pela viewport, a tradução mostrada corresponde s
 
 **P3. Não dá para verificar se está funcionando sem ocupar a tela real**
 Testar exigia deixar a página aberta e não mexer na máquina; qualquer janela que passasse na frente entrava na captura e invalidava o teste.
+
+**P4. A tradução sai literal, sem entender a frase ⭐**
+Expressão idiomática chega traduzida palavra por palavra, e uma fala que continua a anterior é traduzida como se começasse do nada. O usuário compara com um aplicativo de celular e a tradução de lá lê melhor. A origem é só inglês e a restrição é dura: tudo grátis, sem API paga.
+
+**P5. Teclas demais, espalhadas, e que tiram teclas do navegador**
+O app pede seis teclas de função diferentes, longe umas das outras, e duas delas (F6 e F11) param de funcionar no navegador enquanto o app está aberto. Para uso corrente bastam poucas teclas, juntas.
 
 ---
 
@@ -97,6 +135,46 @@ Endossada. Implementada — ver ROADMAP.
 Se a captura pegasse apenas a janela alvo, o overlay do próprio app não entraria no quadro e o problema de "o app lê a própria tradução" desapareceria.
 Endossada como candidata, **rejeitada** — ver argumento no ROADMAP.
 
+**I5. Coletor de capturas** *(origem: própria)*
+Uma opção `--collect` que, a cada rodada do pipeline, grava a imagem que o OCR recebeu e as leituras e traduções do app, pulando quadros quase iguais. É o que transforma o uso real em amostra, em vez das três páginas curadas de hoje.
+Endossada. Pendente — ver ROADMAP.
+
+**I6. Gabarito por dois professores** *(origem: própria)*
+Em vez de rotular à mão, dois modelos lentos e de famílias diferentes leem cada balão das capturas; onde concordam vira gabarito, onde discordam o usuário escolhe num clique. Roda uma vez, sem pressa.
+Endossada. Pendente — ver ROADMAP.
+
+**I7. OCR com o modelo `server`** *(origem: própria)*
+Trocar o par de modelos do RapidOCR pelo maior, só mudando a configuração, e medir contra o gabarito.
+Endossada como experimento; o resultado decide. Em avaliação — ver ROADMAP.
+
+**I8. Detector de linha treinado em mangá no lugar do DBNet** *(origem: própria)*
+O `comic-text-detector` ocuparia o estágio que falha em A2, A3 e A9. Se achar os balões curtos, a segunda passada em mosaico deixa de ser necessária. A diferença para I1 é que o alvo é o detector de linha, não o reconhecedor.
+Endossada como experimento. Em avaliação — ver ROADMAP.
+
+**I9. Google gratuito como tradutor principal** *(origem: própria)*
+Inverter a ordem dos tiers para `["cloud", "nmt"]`: a nuvem traduz e o opus-mt fica de reserva offline.
+Endossada. Implementada — ver ROADMAP.
+
+**I10. TranslateGemma 4B como tradutor offline com contexto** *(origem: própria)*
+Um modelo de tradução local que recebe como contexto os últimos balões em ordem de leitura. Só entra como tier se ganhar ou empatar com o Google num teste às cegas sobre balões reais.
+Endossada como candidata, condicionada ao teste.
+
+**I11. Três teclas juntas: Alt+1, Alt+2, Alt+3** *(origem: própria)*
+Alt+1 liga e desliga a tradução (o modo leitura vira o único), Alt+2 oculta e mostra, Alt+3 seleciona a área. O resto fica na bandeja.
+Endossada.
+
+**I12. Persistir a área selecionada** *(origem: própria)*
+Gravar a área num arquivo pequeno e restaurá-la ao abrir.
+Endossada.
+
+**I13. Registro de balões: o histórico da tira** *(origem: própria)*
+Cada balão lido ganha uma posição na tira (y na tela menos a rolagem acumulada), válida dentro de um trecho que termina quando o rastreio se perde. Balão já traduzido e lido inteiro não é retraduzido nem muda de texto; rolar de volta redesenha do registro, sem OCR; e o registro entrega os últimos balões em ordem de leitura como contexto de tradução, que só zera quando o título da janela em primeiro plano muda ou passam ~10 minutos sem leitura.
+Endossada. Implementada — ver ROADMAP.
+
+**I14. OCR só na faixa que entrou na tela** *(origem: própria)*
+Com o registro de balões, a parte da tela que já foi lida não precisa passar de novo pelo OCR. Economiza GPU, mas um balão cortado na fronteira da faixa precisa de tratamento que ainda não foi desenhado.
+Endossada como direção; sem mecanismo fechado.
+
 ---
 
 ## Síntese (S#)
@@ -111,7 +189,7 @@ A queixa de P1 ("o OCR não dá conta") aponta naturalmente para o reconhecedor,
 
 A segunda passada em mosaico existe justamente para cobrir A2, e funciona em resolução nativa. O que a torna não confiável em página reduzida é A3: como todos os recortes suspeitos vão para a mesma imagem e o DBNet dimensiona pelo lado menor dela, a ampliação que cada recorte recebe depende de quem mais está no mosaico. Isso explica a característica mais incômoda de P1 — a inconsistência. Não é que um balão seja difícil; é que a leitura dele muda conforme os *outros* balões suspeitos daquele quadro. A4 fecha o ciclo: quando o mosaico devolve uma leitura confiante e errada, ela ganha da primeira leitura correta.
 
-**Correção candidata:** desacoplar a ampliação de cada recorte da geometria do mosaico, e arbitrar entre as duas leituras por algo melhor que a confiança do reconhecedor. Duas tentativas foram medidas e revertidas (igualar as larguras dos recortes; fixar a largura do mosaico em 736), e uma terceira (reconhecer cada região suspeita numa chamada isolada) recupera casos que falhavam mas devolve leitura vazia em outros. Mecanismo ainda em aberto.
+**Correção candidata:** desacoplar a ampliação de cada recorte da geometria do mosaico, e arbitrar entre as duas leituras por algo melhor que a confiança do reconhecedor. Duas tentativas foram medidas e revertidas (igualar as larguras dos recortes; fixar a largura do mosaico em 736), e uma terceira (reconhecer cada região suspeita numa chamada isolada) recupera casos que falhavam mas devolve leitura vazia em outros. Mecanismo ainda em aberto, à espera do gabarito (I5, I6) e do teste do detector de linha treinado em mangá (I8): se ele achar os balões curtos, o estágio que falha deixa de existir e esta síntese é descartada.
 
 ### S2 — A instabilidade era invisível porque a medição não cobrava o caso em que ela aparece
 

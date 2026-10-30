@@ -67,7 +67,7 @@ def progress(message: str) -> None:
 
 def ready(seconds: float, commands: list[Command]) -> None:
     global _open_line
-    print(f"{_CLEAR_LINE}  {GREEN}Pronto{RESET} {DIM}em {seconds:.1f}s · tradução offline{RESET}\n")
+    print(f"{_CLEAR_LINE}  {GREEN}Pronto{RESET} {DIM}em {seconds:.1f}s{RESET}\n")
     _open_line = False
     width = max(len(c.key) for c in commands)
     for command in commands:
