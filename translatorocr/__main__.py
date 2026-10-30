@@ -24,6 +24,7 @@ from .core.tracker import merge_tracked, shift_blocks
 from .core.worker import WorkerThread
 from .models import Region
 from .ui import console
+from .ui.area_store import load_area, save_area
 from .ui.commands import Command
 from .ui.coords import screen_physical_region
 from .ui.foreground import foreground_title
@@ -38,6 +39,9 @@ log = logging.getLogger("translatorocr")
 # o MSS e o Qt discordam sobre coordenadas, e a região capturada sai deslocada num
 # display escalado.
 DPI_AWARENESS_PER_MONITOR_AWARE_V2 = ctypes.c_void_p(-4)
+
+# Tempo para a janela de seleção sair da tela antes de a área nova ser fotografada.
+SELECTOR_GONE_MS = 150
 
 
 def enable_dpi_awareness() -> None:
@@ -80,6 +84,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "que a captura enxergou",
     )
     parser.add_argument(
+        "--collect",
+        action="store_true",
+        help="grava cada tela traduzida em eval/captures/, com o que o app leu, para os "
+        "scripts de avaliação",
+    )
+    parser.add_argument(
         "-v", "--verbose", action="store_true", help="mostra os detalhes internos no console"
     )
     return parser.parse_args(argv)
@@ -115,7 +125,10 @@ class App(QObject):
         self._cfg = config
         self._screen = screen or QApplication.primaryScreen()
         self._selected_region: Region | None = None
-        self._outline_visible = False
+        if viewer is None:
+            self._selected_region = load_area(
+                config.capture.area_path, screen_physical_region(self._screen)
+            )
         self._selector: SelectionOverlay | None = None
         self._loaded = False
         self._capture_started = 0.0
@@ -136,22 +149,28 @@ class App(QObject):
         self.overlay.set_status("Carregando modelos...")
         self.overlay.show()
 
+        self._outline_timer = QTimer(self)
+        self._outline_timer.setSingleShot(True)
+        self._outline_timer.setInterval(config.overlay.outline_ms)
+        self._outline_timer.timeout.connect(self.overlay.hide_region_outline)
+
         self._current_blocks: list = []
 
         keys = config.hotkeys
         self.commands = [
             Command(
-                keys.capture,
-                "Traduzir",
-                "traduzir a tela (ou a área selecionada)",
-                self._on_capture,
-            ),
-            Command(
-                keys.scroll_mode,
-                "Modo leitura",
-                "modo leitura — as traduções acompanham a rolagem e o que entra é "
+                keys.reading,
+                "Tradução",
+                "ligar/desligar a tradução — ela acompanha a rolagem e o que entra é "
                 "traduzido sozinho quando você para",
                 self._on_toggle_scroll,
+                toggle=True,
+            ),
+            Command(
+                keys.hide_translation,
+                "Ocultar tradução",
+                "ocultar/mostrar a tradução para conferir o original",
+                self._on_toggle_translation,
                 toggle=True,
             ),
             Command(
@@ -160,22 +179,9 @@ class App(QObject):
                 "selecionar área — clique e arraste; um clique sem arrastar volta à tela cheia",
                 self._on_select_area,
             ),
-            Command(
-                keys.show_region_outline,
-                "Mostrar área",
-                f"mostrar/esconder a borda da área que o {keys.capture} captura",
-                self._on_toggle_outline,
-                toggle=True,
-            ),
-            Command(
-                keys.toggle_translation,
-                "Ocultar tradução",
-                "ocultar/mostrar a tradução para conferir o original — vale também no modo leitura",
-                self._on_toggle_translation,
-                toggle=True,
-            ),
+            Command(None, "Traduzir uma vez", "", self._on_capture),
         ]
-        self.quit_command = Command(keys.quit, "Sair", "sair", self.quit)
+        self.quit_command = Command(None, "Sair", "", self.quit)
 
         # Histórico do que já foi lido: o worker o consulta antes de traduzir, e a GUI o
         # alimenta com a rolagem e com os momentos em que o rastreio se perde.
@@ -204,8 +210,8 @@ class App(QObject):
 
         self.hotkeys = GlobalHotkeys()
         self.hotkeys.install()
-        for command in [*self.commands, self.quit_command]:
-            if not self.hotkeys.register(command.key, command.run):
+        for command in self.commands:
+            if command.key and not self.hotkeys.register(command.key, command.run):
                 console.error(
                     f"a tecla {command.key} ({command.label.lower()}) já está em uso por "
                     "outro programa; use o ícone da bandeja para esse comando."
@@ -230,9 +236,13 @@ class App(QObject):
 
     def _on_loaded(self, seconds: float) -> None:
         self._loaded = True
-        console.ready(seconds, [*self.commands, self.quit_command])
+        console.ready(seconds, self.commands)
+        if self._selected_region is not None:
+            console.info(
+                f"usando a área da sessão anterior — {self._cfg.hotkeys.select_area} troca"
+            )
         self.tray.set_state("Pronto")
-        message = f"Pronto — {self._cfg.hotkeys.capture} para traduzir"
+        message = f"Pronto — {self._cfg.hotkeys.reading} para traduzir"
         self.overlay.set_status(message)
         QTimer.singleShot(2500, lambda: self.overlay.clear_status(message))
 
@@ -242,8 +252,8 @@ class App(QObject):
         if not self._loaded or self._busy:
             return
         if not self._scroll_on and self.overlay.translation_hidden:
-            # Quem pede uma tradução quer vê-la; no modo leitura as leituras são
-            # automáticas e a escolha de ocultar permanece até o próximo F9.
+            # Quem pede uma tradução quer vê-la; com a tradução ligada as leituras são
+            # automáticas e a escolha de ocultar permanece até o usuário mudá-la.
             self._set_translation_hidden(False)
         if not self.overlay.hidden_from_capture:
             # O overlay entraria na foto e o OCR releria a própria tradução.
@@ -269,7 +279,7 @@ class App(QObject):
         # `_current_blocks` segue o tempo todo (rolagem, novas leituras): ocultar só
         # tira o desenho, então mostrar de novo já traz tudo em dia.
         self.overlay.set_translation_hidden(hidden)
-        self.tray.set_checked(self._cfg.hotkeys.toggle_translation, hidden)
+        self.tray.set_checked(self._cfg.hotkeys.hide_translation, hidden)
 
     def _region_for_capture(self) -> Region:
         if self._viewer is not None:
@@ -288,21 +298,26 @@ class App(QObject):
     def _on_area_selected(self, region: Region | None) -> None:
         self._selected_region = region
         self._selector = None
+        save_area(self._cfg.capture.area_path, region)
+        self._on_capture_area_changed()
+
+    def _on_capture_area_changed(self) -> None:
+        self._current_blocks = []
         self.ledger.lost()
+        self.overlay.clear()
         self.scroll_region.emit(self._region_for_capture())
-        if self._outline_visible:
-            self._show_outline()
+        self._flash_outline()
+        if self._scroll_on:
+            # O rastreio só pede leitura depois de movimento, e a área nova está parada.
+            QTimer.singleShot(SELECTOR_GONE_MS, self._on_settled)
 
-    def _show_outline(self) -> None:
-        self.overlay.show_region_outline(self._region_for_capture())
-
-    def _on_toggle_outline(self) -> None:
-        self._outline_visible = not self._outline_visible
-        self.tray.set_checked(self._cfg.hotkeys.show_region_outline, self._outline_visible)
-        if self._outline_visible:
-            self._show_outline()
-        else:
+    def _flash_outline(self) -> None:
+        """Marca a área selecionada por alguns segundos. A tela cheia dispensa a borda."""
+        if self._selected_region is None:
             self.overlay.hide_region_outline()
+            return
+        self.overlay.show_region_outline(self._selected_region)
+        self._outline_timer.start()
 
     def _on_screen_chosen(self, screen: QScreen) -> None:
         if screen is self._screen:
@@ -310,19 +325,14 @@ class App(QObject):
         self._screen = screen
         # A área selecionada era de outra tela; mantê-la capturaria o monitor errado.
         self._selected_region = None
-        self._current_blocks = []
-        self.ledger.lost()
-        self.overlay.clear()
         self.overlay.cover_screen(screen)
-        self.scroll_region.emit(self._region_for_capture())
-        if self._outline_visible:
-            self._show_outline()
+        self._on_capture_area_changed()
         console.info(f"capturando no monitor {QApplication.screens().index(screen) + 1}")
 
-    # -- modo de leitura ----------------------------------------------------
+    # -- tradução ligada ----------------------------------------------------
 
     def _on_toggle_scroll(self) -> None:
-        key = self._cfg.hotkeys.scroll_mode
+        key = self._cfg.hotkeys.reading
         if not self._loaded:
             self.tray.set_checked(key, False)
             return
@@ -330,8 +340,8 @@ class App(QObject):
             # Sem esconder o overlay da captura, cada quadro veria as próprias caixas
             # paradas e a medição da rolagem sairia errada (ver `ui/overlay.py`).
             console.error(
-                "o modo leitura precisa esconder o overlay da captura, e o Windows "
-                f"recusou nesta máquina; use o {self._cfg.hotkeys.capture}."
+                "acompanhar a rolagem precisa esconder o overlay da captura, e o Windows "
+                "recusou nesta máquina; use Traduzir uma vez, no ícone da bandeja."
             )
             self.tray.set_checked(key, False)
             return
@@ -345,14 +355,15 @@ class App(QObject):
             self.ledger.lost()
             self.scroll_region.emit(self._region_for_capture())
             self.scroll_start.emit()
+            self._flash_outline()
             self.tray.set_state("Acompanhando a rolagem")
-            console.info("modo leitura ligado — role à vontade")
+            console.info("tradução ligada — role à vontade")
         else:
             self.scroll_stop.emit()
             self._current_blocks = []
             self.overlay.clear()
             self.tray.set_state("Pronto")
-            console.info("modo leitura desligado")
+            console.info("tradução desligada")
 
     def _on_scrolled(self, dy: int) -> None:
         self._scroll_offset += dy
@@ -453,6 +464,7 @@ def main(argv: list[str] | None = None) -> int:
     config = Config()
     if args.debug_dump:
         config.debug_dump = True
+    config.collect = args.collect
 
     app = QApplication(sys.argv[:1])
     app.setQuitOnLastWindowClosed(False)
@@ -465,6 +477,8 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     console.header()
+    if config.collect:
+        console.info(f"gravando as telas traduzidas em {config.collector.root}")
     viewer, capture = _build_image_mode(args.image, config)
     controller = App(config, screen, args.verbose, viewer=viewer, capture=capture)
     try:

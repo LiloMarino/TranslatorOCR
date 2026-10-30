@@ -4,8 +4,8 @@ Cada tier recebe **apenas** o que o anterior não conseguiu traduzir. Isso não 
 de nenhuma interface nova: o `TranslatorBackend` já contratualiza que uma entrada que
 falhou volta como `None`, então "o que falta" é exatamente "onde veio None".
 
-Encadeia backends de tradução — NMT local rápido e offline na frente, nuvem atrás
-para o que ele não cobrir (par de idioma fora do modelo, lote que estourou).
+A ordem vem de `TranslationConfig.tiers`: a nuvem na frente, o NMT local e offline
+atrás para o que ela não devolver (sem rede, rate limit, página de erro).
 """
 
 from __future__ import annotations

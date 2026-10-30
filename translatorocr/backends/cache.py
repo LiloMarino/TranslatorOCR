@@ -16,9 +16,9 @@ from pathlib import Path
 _WHITESPACE = re.compile(r"\s+")
 
 # Entra na chave. Subir quando uma mudança de tradução tornar as entradas antigas
-# piores que traduzir de novo — v2: o NMT passou a traduzir em caixa de frase e por
-# frase, e o que estava em cache eram traduções feitas em CAIXA ALTA.
-_KEY_VERSION = "2"
+# piores que traduzir de novo: trocar o tier principal, ou o jeito de preparar o texto
+# (caixa de frase, uma frase por vez).
+_KEY_VERSION = "3"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS translations (
@@ -38,9 +38,11 @@ def normalize(text: str) -> str:
     return _WHITESPACE.sub(" ", text).strip()
 
 
-def make_key(text: str, source: str, target: str) -> str:
-    payload = f"{_KEY_VERSION}\x1f{source}\x1f{target}\x1f{normalize(text)}".encode()
-    return hashlib.sha1(payload).hexdigest()
+def make_key(text: str, source: str, target: str, backend: str) -> str:
+    # O backend entra na chave: cada tier tem as próprias entradas, então o que a reserva
+    # traduziu enquanto a nuvem estava fora não impede a nuvem de traduzir quando voltar.
+    payload = f"{_KEY_VERSION}\x1f{backend}\x1f{source}\x1f{target}\x1f{normalize(text)}"
+    return hashlib.sha1(payload.encode()).hexdigest()
 
 
 class TranslationCache:
@@ -53,10 +55,10 @@ class TranslationCache:
         self._conn.executescript(_SCHEMA)
         self._conn.commit()
 
-    def get(self, text: str, source: str, target: str) -> str | None:
+    def get(self, text: str, source: str, target: str, backend: str) -> str | None:
         row = self._conn.execute(
             "SELECT translated FROM translations WHERE key = ?",
-            (make_key(text, source, target),),
+            (make_key(text, source, target, backend),),
         ).fetchone()
         return row[0] if row else None
 
@@ -66,7 +68,7 @@ class TranslationCache:
             "(key, source, translated, source_lang, target_lang, backend, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
-                make_key(text, source, target),
+                make_key(text, source, target, backend),
                 normalize(text),
                 translated,
                 source,
@@ -103,7 +105,7 @@ def resolve_with_cache(
         if not text.strip():
             continue
         if cache is not None:
-            hit = cache.get(text, source, target)
+            hit = cache.get(text, source, target, backend)
             if hit is not None:
                 results[i] = hit
                 continue

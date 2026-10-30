@@ -4,7 +4,7 @@
 >
 > **Legenda:** `A#` achado de leitura de código/medição · `P#` problema relatado · `I#` ideia pesada como candidata · `S#` síntese causal.
 >
-> **Última mudança (2026-10-30):** segunda rodada. Entram a tradução literal e sem contexto (P4), as teclas demais (P5), os achados de código por trás deles (A12–A18) e as ideias da retomada (I5–I14): gabarito por professores, Google como tradutor principal, registro de balões e três teclas.
+> **Última mudança (2026-10-30):** as teclas viraram Alt+1/2/3 (I11), a área selecionada passou a sobreviver entre sessões (I12) e o coletor de capturas entrou (I5). O Google é o tradutor principal, com pausa depois de rate limit (I9, A19).
 
 ## Contexto e escopo
 
@@ -50,7 +50,7 @@ Vinha registrado como limitação no README. Para mangá parado não incomoda, m
 
 **A8 — O detector é treinado em mangá/HQ e rende menos fora dessa distribuição**
 Numa tela de IDE ele dispara `text_free` em quase toda a interface: o ganho medido foi de 102 para 45 blocos, vindo de agrupar melhor e não de descartar UI (só 1 linha caiu fora de todas as regiões). Numa página de mangá aberta no navegador, texto de interface em volta ainda pode virar bloco.
-ℹ️ **Restrição do modelo, não resolvível por construção. Conviver: `F11` restringe a captura à área da página.**
+ℹ️ **Restrição do modelo, não resolvível por construção. Conviver: a seleção de área restringe a captura à página.**
 
 **A9 — Palavra curta com til decorativo sai errada em resolução nativa**
 Uma palavra de três letras seguida de til é lida com os glifos trocados, com confiança baixa; o gate marca o bloco e ele sai com borda âmbar. Nas escalas reduzidas de leitura em tela sai certa, o que é o inverso do padrão de A2/A3 e sugere que a segunda passada acerta quando a região é pequena e erra quando ela é grande o bastante para o DBNet já ter produzido uma caixa ruim.
@@ -81,20 +81,24 @@ Vinha registrado como comentário em `ocr_rapid.py`. Os pesos da geração segui
 ⚠️ **Confirmado. Expressão idiomática e fala que continua a anterior saem traduzidas palavra por palavra.**
 
 **A16 — A ordem padrão dos tiers põe o tradutor mais literal na frente**
-`config.py:TranslationConfig.tiers`. O default é `["nmt", "cloud"]`, escolhido pela latência (0.8 s para 50 blocos contra 11.4 s). A nuvem só recebe o que o NMT não traduziu, então na prática nunca é usada.
-⚠️ **Confirmado. A correção é o I9, bloqueada por A19: o default segue `["nmt", "cloud"]`.**
+`config.py:TranslationConfig.tiers`. O default era `["nmt", "cloud"]`, escolhido pela latência (0.8 s para 50 blocos contra 11.4 s). A nuvem só recebia o que o NMT não traduzia, então na prática nunca era usada.
+✅ **Resolvido via I9 — o default passou a `["cloud", "nmt"]`.**
 
-**A19 — Com a nuvem na frente, cada rodada paga os retries antes de cair no NMT**
-`backends/translate_cloud.py`, `backends/chain.py`. O endpoint gratuito bloqueia por rate limit (medido em 2026-10-30: depois de uma rajada de 40 blocos, até chamadas sequenciais de 1 por segundo voltaram 429). O `ChainTranslator` não lembra que a nuvem falhou: cada rodada tenta de novo, esgota as 3 tentativas com backoff e só então entrega ao NMT. Medido nessa condição: 12.4 s para 5 blocos e 45.6 s para 25, todos traduzidos, mas pelo NMT. Além disso, o que o NMT traduz nesse intervalo fica no cache sob a mesma chave, e a nuvem não o refaz quando volta.
-⚠️ **Confirmado, sem correção proposta.**
+**A19 — Com a nuvem na frente, cada rodada pagava os retries antes de cair no NMT**
+`backends/translate_cloud.py`, `backends/cache.py`. O endpoint gratuito bloqueia por rate limit: depois de uma rajada de 40 blocos, até chamadas sequenciais de 1 por segundo voltaram 429. Cada rodada tentava de novo, esgotava as 3 tentativas com backoff e só então entregava ao NMT (12.4 s para 5 blocos, 45.6 s para 25). O que o NMT traduzia nesse intervalo ficava no cache sob a mesma chave, e a nuvem não refazia quando voltava.
+✅ **Resolvido via I9 — 429 e queda de rede pausam a nuvem por 5 min, sem retry, e o cache separa as entradas por tier. Com o IP bloqueado de verdade: 1.8 s na rodada que descobre o bloqueio, depois 0.18 s para 5 blocos e 0.71 s para 25. A duração de um bloqueio segue sem medição.**
+
+**A20 — A nuvem não tem timeout de rede**
+`config.py:TranslationConfig.timeout` não é lido por ninguém, e o `GoogleTranslator` do `deep-translator` chama `requests.get` sem timeout. Uma rede que trava sem derrubar a conexão segura a leitura, que hoje depende da nuvem responder. A pausa de A19 só cobre as falhas que chegam a levantar exceção.
+⚠️ **Confirmado por leitura de código, não observado em uso.**
 
 **A17 — Seis comandos em teclas de função globais, uma por comando**
-`config.py:HotkeyConfig`, `__main__.py` (lista `commands`). F6, F7, F8, F9, F10 e F11 são registradas com `RegisterHotKey`, que consome a tecla no sistema inteiro: o navegador com a página em foco perde o F6 (barra de endereço) e o F11 (tela cheia). `ui/hotkey.py` já aceita modificador, mas nenhum default usa.
-⚠️ **Confirmado. Ver I11.**
+`config.py:HotkeyConfig`, `__main__.py` (lista `commands`). Seis teclas de função registradas com `RegisterHotKey`, que consome a tecla no sistema inteiro: o navegador com a página em foco perdia a barra de endereço e a tela cheia.
+✅ **Resolvido via I11 — três teclas com Alt; as teclas de função voltaram ao navegador.**
 
 **A18 — A área selecionada vive só na memória do processo**
-`__main__.py:App._selected_region`. Ao fechar o app, a área escolhida com a seleção se perde e a próxima sessão começa na tela cheia.
-⚠️ **Confirmado. Ver I12.**
+`__main__.py:App._selected_region`. Ao fechar o app, a área escolhida com a seleção se perdia e a próxima sessão começava na tela cheia.
+✅ **Resolvido via I12 — a área fica em `area.json` e volta ao abrir, na tela que a contém.**
 
 ---
 
@@ -137,7 +141,7 @@ Endossada como candidata, **rejeitada** — ver argumento no ROADMAP.
 
 **I5. Coletor de capturas** *(origem: própria)*
 Uma opção `--collect` que, a cada rodada do pipeline, grava a imagem que o OCR recebeu e as leituras e traduções do app, pulando quadros quase iguais. É o que transforma o uso real em amostra, em vez das três páginas curadas de hoje.
-Endossada. Pendente — ver ROADMAP.
+Endossada. Implementada — ver ROADMAP.
 
 **I6. Gabarito por dois professores** *(origem: própria)*
 Em vez de rotular à mão, dois modelos lentos e de famílias diferentes leem cada balão das capturas; onde concordam vira gabarito, onde discordam o usuário escolhe num clique. Roda uma vez, sem pressa.
@@ -153,7 +157,7 @@ Endossada como experimento. Em avaliação — ver ROADMAP.
 
 **I9. Google gratuito como tradutor principal** *(origem: própria)*
 Inverter a ordem dos tiers para `["cloud", "nmt"]`: a nuvem traduz e o opus-mt fica de reserva offline.
-Endossada. Pendente, depois de A19 — ver ROADMAP.
+Endossada. Implementada junto com o tratamento de A19 — ver ROADMAP.
 
 **I10. TranslateGemma 4B como tradutor offline com contexto** *(origem: própria)*
 Um modelo de tradução local que recebe como contexto os últimos balões em ordem de leitura. Só entra como tier se ganhar ou empatar com o Google num teste às cegas sobre balões reais.
@@ -161,11 +165,11 @@ Endossada como candidata, condicionada ao teste.
 
 **I11. Três teclas juntas: Alt+1, Alt+2, Alt+3** *(origem: própria)*
 Alt+1 liga e desliga a tradução (o modo leitura vira o único), Alt+2 oculta e mostra, Alt+3 seleciona a área. O resto fica na bandeja.
-Endossada.
+Endossada. Implementada — ver ROADMAP.
 
 **I12. Persistir a área selecionada** *(origem: própria)*
 Gravar a área num arquivo pequeno e restaurá-la ao abrir.
-Endossada.
+Endossada. Implementada — ver ROADMAP.
 
 **I13. Registro de balões: o histórico da tira** *(origem: própria)*
 Cada balão lido ganha uma posição na tira (y na tela menos a rolagem acumulada), válida dentro de um trecho que termina quando o rastreio se perde. Balão já traduzido e lido inteiro não é retraduzido nem muda de texto; rolar de volta redesenha do registro, sem OCR; e o registro entrega os últimos balões em ordem de leitura como contexto de tradução, que só zera quando o título da janela em primeiro plano muda ou passam ~10 minutos sem leitura.

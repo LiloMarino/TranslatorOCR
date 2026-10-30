@@ -172,8 +172,8 @@ class ScrollThread:
     """Dono do par QThread + ScrollTracker, no mesmo molde de `WorkerThread`.
 
     A thread sobe junto com o app e fica ociosa; quem liga e desliga o laço é o timer,
-    pelos slots `start`/`stop` do tracker. Subir e derrubar thread a cada F6 só traria
-    corrida de desligamento sem ganho nenhum.
+    pelos slots `start`/`stop` do tracker. Subir e derrubar thread a cada acionamento só
+    traria corrida de desligamento sem ganho nenhum.
     """
 
     def __init__(self, config: Config, capture=None) -> None:

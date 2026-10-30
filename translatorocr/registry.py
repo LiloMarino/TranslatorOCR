@@ -11,6 +11,7 @@ import logging
 from .backends.base import CaptureBackend, LLMBackend, OCRBackend, TranslatorBackend
 from .backends.cache import TranslationCache
 from .config import Config
+from .core.collector import CaptureCollector
 from .core.ledger import BlockLedger
 from .core.pipeline import Pipeline
 
@@ -121,6 +122,7 @@ def build_pipeline(
     """`capture` pronto substitui o backend de tela — é assim que o `--image` roda o
     pipeline inteiro sobre um arquivo, sem a tela participar. `ledger` é o registro de
     balões, que o `App` também alimenta com a rolagem."""
+    collector = CaptureCollector(config.collector) if config.collect else None
     return Pipeline(
         config=config,
         capture=capture or build_capture(config),
@@ -128,4 +130,5 @@ def build_pipeline(
         translator=build_translator(config),
         llm=build_llm(config),
         ledger=ledger,
+        collector=collector,
     )

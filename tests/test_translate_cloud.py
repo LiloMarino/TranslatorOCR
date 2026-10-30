@@ -6,7 +6,10 @@ Sem rede: a chamada ao endpoint é substituída por um dublê.
 from __future__ import annotations
 
 import pytest
+import requests
+from deep_translator.exceptions import TooManyRequests
 
+from translatorocr.backends import translate_cloud
 from translatorocr.backends.cache import TranslationCache, make_key, normalize
 from translatorocr.backends.translate_cloud import CloudTranslator, looks_like_error
 from translatorocr.config import TranslationConfig
@@ -50,6 +53,7 @@ def make(cfg, endpoint, cache=None) -> CloudTranslator:
     translator._cfg = cfg
     translator._cache = cache
     translator._make = endpoint
+    translator._paused_until = 0.0
     return translator
 
 
@@ -102,11 +106,11 @@ def test_cache_evita_segunda_chamada(cfg, tmp_path):
 def test_cache_ignora_diferenca_de_espacamento(tmp_path):
     cache = TranslationCache(tmp_path / "c.sqlite")
     cache.put("Hello   world", "Olá mundo", "auto", "pt", "test")
-    assert cache.get("Hello world", "auto", "pt") == "Olá mundo"
+    assert cache.get("Hello world", "auto", "pt", "test") == "Olá mundo"
 
 
 def test_chave_depende_do_par_de_idiomas():
-    assert make_key("a", "en", "pt") != make_key("a", "en", "es")
+    assert make_key("a", "en", "pt", "x") != make_key("a", "en", "es", "x")
 
 
 def test_normalize_colapsa_espacos():
@@ -134,3 +138,50 @@ def test_texto_vazio_nao_vai_para_a_rede(cfg):
     translator = make(cfg, endpoint)
     assert translator.translate(["", "   "], "auto", "pt") == [None, None]
     assert endpoint.calls == []
+
+
+# -- pausa -------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [TooManyRequests(), requests.ConnectionError(), requests.Timeout()],
+    ids=["rate-limit", "sem-rede", "timeout"],
+)
+def test_endpoint_indisponivel_nao_e_repetido(cfg, failure):
+    endpoint = FakeEndpoint(responses={"Hello": failure})
+    translator = make(cfg, endpoint)
+    assert translator.translate(["Hello"], "auto", "pt") == [None]
+    assert len(endpoint.calls) == 1
+
+
+def test_pausa_nao_toca_a_rede_e_termina_sozinha(cfg, monkeypatch):
+    now = [100.0]
+    monkeypatch.setattr(translate_cloud.time, "monotonic", lambda: now[0])
+    endpoint = FakeEndpoint(responses={"Hello": TooManyRequests()})
+    translator = make(cfg, endpoint)
+    translator.translate(["Hello"], "auto", "pt")
+    endpoint.calls.clear()
+
+    assert translator.translate(["Bye"], "auto", "pt") == [None]
+    assert endpoint.calls == []
+
+    now[0] += cfg.cloud_pause_s + 1
+    assert translator.translate(["Bye"], "auto", "pt") == ["pt(Bye)"]
+
+
+def test_pausa_interrompe_o_resto_do_lote(cfg):
+    cfg.max_workers = 1
+    endpoint = FakeEndpoint(responses={"a": TooManyRequests()})
+    translator = make(cfg, endpoint)
+    assert translator.translate(["a", "b", "c"], "auto", "pt") == [None, None, None]
+    assert endpoint.calls == ["a"]
+
+
+def test_entrada_da_reserva_nao_impede_a_nuvem_de_traduzir(cfg, tmp_path):
+    cache = TranslationCache(tmp_path / "c.sqlite")
+    cache.put("Hello", "offline", "auto", "pt", "nmt")
+    endpoint = FakeEndpoint()
+    translator = make(cfg, endpoint, cache)
+    assert translator.translate(["Hello"], "auto", "pt") == ["pt(Hello)"]
+    assert cache.get("Hello", "auto", "pt", "nmt") == "offline"

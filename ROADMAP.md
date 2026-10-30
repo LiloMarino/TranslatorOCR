@@ -8,7 +8,7 @@
 >
 > **Regra de sincronização:** os dois documentos usam os mesmos IDs (`A#`, `P#`, `I#`, `S#`) e devem sempre concordar sobre a decisão vigente de cada item.
 >
-> **Última mudança (2026-10-30):** A nuvem como tier principal (I9) foi revertida: o rate limit do endpoint (A19) faz cada rodada pagar os retries antes do NMT. O I9 volta a Pendente, à espera de um tratamento para o A19.
+> **Última mudança (2026-10-30):** Teclas Alt+1/2/3 (I11), área persistida (I12) e coletor de capturas (I5) concluídos; o Google é o tradutor principal, com pausa depois de rate limit (I9).
 
 ## Glossário
 
@@ -22,7 +22,7 @@
 | **P2** | Balão encostado na borda da tela sai traduzido pela metade, sem aviso | — |
 | **P3** | Não dá para verificar se está funcionando sem ocupar a tela real | — |
 | **P4** | A tradução sai literal, sem entender a frase nem a fala anterior | — |
-| **P5** | Teclas demais, espalhadas, e que tiram F6 e F11 do navegador | — |
+| **P5** | Teclas demais, espalhadas, e que tiram teclas do navegador | — |
 | **A2** | O DBNet não gera caixa de linha para balão curto, em nenhuma escala | ⚠️ |
 | **A3** | A ampliação de um recorte no mosaico depende das dimensões do mosaico inteiro, acoplando os recortes | ⚠️ |
 | **A4** | A escolha entre primeira e segunda leitura usa a confiança do reconhecedor, que não arbitra bem | ⚠️ |
@@ -31,24 +31,17 @@
 | **A10** | O tradutor roda em CPU por incompatibilidade de versão de cuBLAS; correção conhecida e cara | ⚠️ |
 | **A11** | A geração seguinte do OCR não é alcançável na versão atual do rapidocr; reavaliar ao subir de versão | ⚠️ |
 | **A15** | O contexto de tradução só existe no tier LLM, e na ordem de chegada | ⚠️ |
-| **A16** | A ordem padrão dos tiers põe o tradutor mais literal (NMT) na frente; a correção (I9) espera o A19 | ⚠️ |
-| **A17** | Seis comandos em teclas de função globais, uma por comando | ⚠️ |
-| **A18** | A área selecionada vive só na memória do processo | ⚠️ |
-| **A19** | Com a nuvem na frente, cada rodada paga os retries do rate limit antes de cair no NMT | ⚠️ |
+| **A20** | A nuvem não tem timeout de rede: TranslationConfig.timeout não é lido | ⚠️ |
 | [**S1**](#s1) | Desacoplar a segunda passada de OCR da geometria do mosaico | 🔍 |
 | [**S3**](#s3) | Gate de estabilidade: exigir duas leituras iguais antes de desenhar | 💤 |
-| [**I5**](#i5) | Coletor de capturas: --collect grava o que o OCR recebeu e o que o app leu e traduziu | ⏳ |
 | [**I6**](#i6) | Gabarito por dois professores (PaddleOCR-VL e Baberu OCR) sobre as capturas | ⏳ |
 | [**I7**](#i7) | OCR com model_type = server, medido contra o gabarito | 🔍 |
 | [**I8**](#i8) | comic-text-detector no lugar do DBNet em ocr_composite.py | 🔍 |
-| [**I9**](#i9) | Google gratuito como tradutor principal: tiers = [cloud, nmt] | ⏳ |
 | [**I10**](#i10) | TranslateGemma 4B offline, com os balões anteriores como contexto | ⏳ |
-| [**I11**](#i11) | Alt+1 liga/desliga, Alt+2 oculta/mostra, Alt+3 seleciona a área | ⏳ |
-| [**I12**](#i12) | Persistir a área selecionada entre sessões | ⏳ |
 | [**I14**](#i14) | OCR só na faixa que entrou na tela, em vez da tela inteira | 🔍 |
 
 <details>
-<summary><strong>Resolvido / descartado / informativo (13 itens — clique pra expandir)</strong></summary>
+<summary><strong>Resolvido / descartado / informativo (21 itens — clique pra expandir)</strong></summary>
 
 | ID | Resumo | Status |
 | --- | --- | --- |
@@ -59,11 +52,19 @@
 | **A12** | A leitura nova substituía a antiga mesmo quando a antiga estava certa (resolvido via I13) | ✅ |
 | **A13** | O cache de tradução só acerta com o texto idêntico; a posição agora passa na frente (resolvido via I13) | ✅ |
 | **A14** | O balão que saía da tela era descartado e nada guardava o que já foi lido (resolvido via I13) | ✅ |
+| **A16** | A ordem padrão dos tiers punha o tradutor mais literal na frente (resolvido via I9) | ✅ |
+| **A17** | Seis comandos em teclas de função globais, uma por comando | ✅ |
+| **A18** | A área selecionada vive só na memória do processo | ✅ |
+| **A19** | Com a nuvem na frente, cada rodada pagava os retries antes de cair no NMT (resolvido via I9) | ✅ |
 | [**S2**](#s2) | Eval cobra recall em toda vista, usando a posição gravada de cada balão | ✅ |
 | [**I1**](#i1) | Trocar o motor de OCR por outro modelo | 🚫 |
 | [**I2**](#i2) | Modo --image: o pipeline lê de um arquivo, sem a tela participar | ✅ |
 | [**I3**](#i3) | Modo de leitura (F6): as caixas acompanham a rolagem | ✅ |
 | [**I4**](#i4) | Capturar só a janela do navegador em vez da tela inteira | 🚫 |
+| [**I5**](#i5) | Coletor de capturas: --collect grava o que o OCR recebeu e o que o app leu e traduziu | ✅ |
+| [**I9**](#i9) | Google gratuito como tradutor principal: tiers = [cloud, nmt] | ✅ |
+| [**I11**](#i11) | Alt+1 liga/desliga, Alt+2 oculta/mostra, Alt+3 seleciona a área | ✅ |
+| [**I12**](#i12) | Persistir a área selecionada entre sessões | ✅ |
 | [**I13**](#i13) | Registro de balões: posição na tira, casamento por posição e contexto em ordem de leitura | ✅ |
 
 </details>
@@ -81,7 +82,6 @@
 | **A4** | A escolha entre primeira e segunda leitura usa a confiança do reconhecedor, que não arbitra bem | ⚠️ |
 | **A9** | Palavra curta com til decorativo sai errada em resolução nativa | ⚠️ |
 | [**S1**](#s1) | Desacoplar a segunda passada de OCR da geometria do mosaico | 🔍 |
-| [**I5**](#i5) | Coletor de capturas: --collect grava o que o OCR recebeu e o que o app leu e traduziu | ⏳ |
 | [**I6**](#i6) | Gabarito por dois professores (PaddleOCR-VL e Baberu OCR) sobre as capturas | ⏳ |
 | [**I7**](#i7) | OCR com model_type = server, medido contra o gabarito | 🔍 |
 | [**I8**](#i8) | comic-text-detector no lugar do DBNet em ocr_composite.py | 🔍 |
@@ -104,16 +104,13 @@
 | ID | Resumo | Status |
 | --- | --- | --- |
 | **A15** | O contexto de tradução só existe no tier LLM, e na ordem de chegada | ⚠️ |
-| **A16** | A ordem padrão dos tiers põe o tradutor mais literal (NMT) na frente; a correção (I9) espera o A19 | ⚠️ |
-| [**I9**](#i9) | Google gratuito como tradutor principal: tiers = [cloud, nmt] | ⏳ |
 | [**I10**](#i10) | TranslateGemma 4B offline, com os balões anteriores como contexto | ⏳ |
 
 ### Frente 5 — P5
 
 | ID | Resumo | Status |
 | --- | --- | --- |
-| **A17** | Seis comandos em teclas de função globais, uma por comando | ⚠️ |
-| [**I11**](#i11) | Alt+1 liga/desliga, Alt+2 oculta/mostra, Alt+3 seleciona a área | ⏳ |
+| — | *(nada em aberto)* | — |
 
 ### Sem frente definida
 
@@ -122,10 +119,8 @@
 | **A7** | Não há gate de estabilidade: o overlay desenha a primeira leitura que chegar | ⚠️ |
 | **A10** | O tradutor roda em CPU por incompatibilidade de versão de cuBLAS; correção conhecida e cara | ⚠️ |
 | **A11** | A geração seguinte do OCR não é alcançável na versão atual do rapidocr; reavaliar ao subir de versão | ⚠️ |
-| **A18** | A área selecionada vive só na memória do processo | ⚠️ |
-| **A19** | Com a nuvem na frente, cada rodada paga os retries do rate limit antes de cair no NMT | ⚠️ |
+| **A20** | A nuvem não tem timeout de rede: TranslationConfig.timeout não é lido | ⚠️ |
 | [**S3**](#s3) | Gate de estabilidade: exigir duas leituras iguais antes de desenhar | 💤 |
-| [**I12**](#i12) | Persistir a área selecionada entre sessões | ⏳ |
 
 ---
 
@@ -135,11 +130,11 @@
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | **I2** | Modo --image: o pipeline lê de um arquivo, sem a tela participar | P3 | — | Médio | Baixo | Alto | Excelente | ✅ Concluído |
 | **I3** | Modo de leitura (F6): as caixas acompanham a rolagem | P2 | — | Alto | Médio | Alto | Bom | ✅ Concluído |
-| **I5** | Coletor de capturas: --collect grava o que o OCR recebeu e o que o app leu e traduziu | P1 | — | Baixo | Baixo | Alto | Excelente | ⏳ Pendente |
+| **I5** | Coletor de capturas: --collect grava o que o OCR recebeu e o que o app leu e traduziu | P1 | — | Baixo | Baixo | Alto | Excelente | ✅ Concluído |
 | **I6** | Gabarito por dois professores (PaddleOCR-VL e Baberu OCR) sobre as capturas | P1 | — | Alto | Médio | Alto | Bom | ⏳ Pendente |
-| **I9** | Google gratuito como tradutor principal: tiers = [cloud, nmt] | P4 | A16 | Baixo | Baixo | Alto | Excelente | ⏳ Pendente |
+| **I9** | Google gratuito como tradutor principal: tiers = [cloud, nmt] | P4 | A16, A19 | Baixo | Baixo | Alto | Excelente | ✅ Concluído |
 | **I10** | TranslateGemma 4B offline, com os balões anteriores como contexto | P4 | A15 | Alto | Médio | Alto | Incerto | ⏳ Pendente |
-| **I11** | Alt+1 liga/desliga, Alt+2 oculta/mostra, Alt+3 seleciona a área | P5 | A17 | Médio | Baixo | Médio | Bom | ⏳ Pendente |
+| **I11** | Alt+1 liga/desliga, Alt+2 oculta/mostra, Alt+3 seleciona a área | P5 | A17 | Médio | Baixo | Médio | Bom | ✅ Concluído |
 | **I13** | Registro de balões: posição na tira, casamento por posição e contexto em ordem de leitura | P1, P4 | A12, A13, A14 | Alto | Médio | Alto | Bom | ✅ Concluído |
 
 <a id="i2"></a>
@@ -163,11 +158,11 @@ Pré-requisito que virou parte do item: o overlay precisou sair da captura, sen�
 Não resolve: zoom e troca de página não são translação, e nesses casos o modo limpa em vez de arrastar caixa para o lugar errado.
 
 <a id="i5"></a>
-**I5 — Coletor de capturas: --collect grava o que o OCR recebeu e o que o app leu e traduziu.** Resolve P1 no sentido de torná-lo medível com amostra grande, não de corrigi-lo.
+**I5 — Coletor de capturas: --collect grava o que o OCR recebeu e o que o app leu e traduziu.** Dá amostra real, no recorte que o app recebe, para I6, I7, I8 e I10.
 
-Plano: opção `--collect` no `__main__.py`; em `App._on_ready`, a cada rodada do pipeline (a parada da rolagem), grava em `eval/captures/<data>/` a imagem que o OCR recebeu, em webp, mais um JSON com as leituras e traduções do app e o registro de balões (I13). Pula a gravação quando o quadro é quase igual ao anterior (a mesma comparação reduzida do `core/tracker.py`). `eval/captures/` entra no `.gitignore`.
+`core/collector.py` (novo): `CaptureCollector.save` grava `eval/captures/<data>/<hora>.webp` e um `.json` ao lado, com o bbox de cada balão em coordenada da imagem, texto, tradução, confiança, `needs_review`, `partial`, `new` (traduzido nesta rodada) e `context` (as falas anteriores em ordem de leitura, vindas de `BlockLedger.context`, só nos balões novos). Tela com diferença média de cinza abaixo de 2.0 para a última gravada é pulada. Falha de disco vira aviso e a leitura segue. Entrou em `Pipeline.run`, e não em `App._on_ready` como planejado, porque a imagem entregue ao OCR só existe ali. A pasta fica separada de `eval/pages/` e fora do versionamento.
 
-Condição de disparo: depois do registro de balões, que fornece o contexto que o coletor grava.
+Medido com OCR real numa página de `eval/pages`, em 4 paradas: 3 telas gravadas (a parada no mesmo lugar foi pulada), ~65 KB por tela, ~0.1 s por gravação, com contexto de 0 a 6 falas. A gravação roda na thread do worker antes de o resultado ir para a tela, então soma esse 0.1 s à latência, só com `--collect`.
 
 <a id="i6"></a>
 **I6 — Gabarito por dois professores (PaddleOCR-VL e Baberu OCR) sobre as capturas.** Resolve P1 no sentido de dar uma régua com centenas de balões no lugar de ~21.
@@ -179,9 +174,11 @@ Condição de disparo: capturas coletadas (I5).
 <a id="i9"></a>
 **I9 — Google gratuito como tradutor principal: tiers = [cloud, nmt].** Resolve P4 no tier; o contexto entre frases é I10/I13.
 
-Plano: `TranslationConfig.tiers` passa a `["cloud", "nmt"]`, com o opus-mt de reserva offline. Foi aplicado e revertido na mesma sessão: o endpoint gratuito entrou em rate limit (A19) e, com a nuvem na frente, cada rodada esgota as 3 tentativas com backoff antes de ceder ao NMT (12.4 s para 5 blocos, 45.6 s para 25). Antes de reaplicar, o `ChainTranslator` precisa lembrar que a nuvem falhou: depois de um rate limit, vai direto ao NMT por alguns minutos e não grava no cache o que veio do fallback, para a nuvem refazer quando voltar. A `_KEY_VERSION` do cache sobe junto com a troca, porque a chave não distingue o tier e as entradas antigas são do NMT. README, diagrama, banner do console e docstrings de `chain.py` e `translate_cloud.py` acompanham a ordem.
+`TranslationConfig.tiers` passou a `["cloud", "nmt"]`, com o opus-mt de reserva offline. O que tornou isso viável foi o tratamento de A19 em `backends/translate_cloud.py`: `TooManyRequests`, `ConnectionError` e `Timeout` não são repetidos; pausam a nuvem por `cloud_pause_s` (300 s), avisam uma vez no console e devolvem `None`, o que entrega o bloco ao NMT pela semântica que a cadeia já tinha. O backend entrou na chave do cache (`make_key`), então a entrada do NMT não impede a nuvem de traduzir quando voltar, e a do NMT continua valendo offline. `max_workers` caiu de 4 para 2, porque 4 provocou o bloqueio numa rajada de 40 e o registro de balões deixa poucos blocos novos por parada.
 
-Condição de disparo: o tratamento de A19 pronto, e uma medição de latência com a nuvem respondendo (que não pôde ser feita com o IP bloqueado).
+Medido com o IP bloqueado de verdade, cadeia real: 1.81 s na rodada que descobre o bloqueio (5 blocos), depois 0.18 s para 5 e 0.71 s para 25, contra 12.4 s e 45.6 s antes. Todos traduzidos, pelo NMT.
+
+Limites: a qualidade e a latência com a nuvem respondendo **não foram medidas**, porque o IP segue bloqueado; os 2 workers também não. Balão traduzido pelo NMT durante uma pausa fica no registro até ele recomeçar, sem ser refeito. A duração de um bloqueio é desconhecida, e cada volta da pausa custa uma tentativa. Não há timeout de rede (A20).
 
 <a id="i10"></a>
 **I10 — TranslateGemma 4B offline, com os balões anteriores como contexto.** Resolve P4 e ataca A15 pela raiz: o contexto vem do registro (I13), na ordem de leitura.
@@ -191,11 +188,11 @@ Plano: `scripts/eval_translation.py` sorteia ~50 balões das capturas e monta, n
 Condição de disparo: registro de balões (I13) e capturas (I5) prontos.
 
 <a id="i11"></a>
-**I11 — Alt+1 liga/desliga, Alt+2 oculta/mostra, Alt+3 seleciona a área.** Resolve P5.
+**I11 — Alt+1 liga/desliga, Alt+2 oculta/mostra, Alt+3 seleciona a área.** Resolve P5 e A17.
 
-Plano: `HotkeyConfig` já aceita modificador e dígito em `ui/hotkey.py`. Alt+1 liga e desliga a tradução, e o modo leitura vira o modo único; Alt+2 é o ocultar/mostrar atual; Alt+3 seleciona a área, com a borda aparecendo e sumindo sozinha, e o F7 sai. O F8 e o F10 ficam só na bandeja. Console e README atualizados.
+`HotkeyConfig` ficou com três teclas com Alt. O modo leitura virou o modo único: Alt+1 liga a tradução e a primeira leitura sai sem precisar rolar. "Traduzir uma vez" e "Sair" ficaram só na bandeja, com `Command.key` opcional; o clique simples no ícone liga e desliga a tradução. O F7 saiu: a borda da área aparece por 3 s ao selecionar e ao ligar a tradução, e some sozinha. Trocar a área com a tradução ligada agora dispara uma leitura, porque o rastreio só pedia leitura depois de movimento.
 
-Condição de disparo: depois do OCR medido, para não misturar mudança de uso com mudança de leitura.
+Verificado com o app real: as três teclas registradas no Windows, menu e ajuda do console certos, borda presente logo após selecionar e ausente depois de 3.4 s, e leitura disparada ao ligar sobre uma página de `eval/pages`. Falta o uso com o navegador em foco.
 
 <a id="i13"></a>
 **I13 — Registro de balões: posição na tira, casamento por posição e contexto em ordem de leitura.** Resolve P1 (a leitura deixa de piscar entre paradas) e prepara P4 (o contexto de tradução existe, mas nenhum tier o consome ainda).
@@ -226,7 +223,7 @@ Na primeira execução depois da mudança apareceram falhas que antes passavam v
 | ID | Resumo | A# | Esforço | Risco | Ganho esperado | Custo-benefício | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | **S3** | Gate de estabilidade: exigir duas leituras iguais antes de desenhar | A7 | Baixo | Baixo | Baixo | Baixo | 💤 Registrado, sem prioridade |
-| **I12** | Persistir a área selecionada entre sessões | A18 | Baixo | Baixo | Baixo | Bom | ⏳ Pendente |
+| **I12** | Persistir a área selecionada entre sessões | A18 | Baixo | Baixo | Baixo | Bom | ✅ Concluído |
 
 <a id="s3"></a>
 **S3 - Exigir leitura repetida antes de desenhar.** Nao endereca nenhum P#: o caso que resolve e texto animado letra por letra, que e jogo, e o foco hoje e manga.
@@ -236,11 +233,9 @@ Plano: no modo de leitura, `App._on_ready` passa a comparar o `source` de cada b
 Condicao de disparo: alguem voltar a usar o app em jogo. Enquanto o uso for manga, o custo (dobrar a latencia de cada parada) nao se paga.
 
 <a id="i12"></a>
-**I12 — Persistir a área selecionada entre sessões.** Não endereça nenhum P#: é conveniência.
+**I12 — Persistir a área selecionada entre sessões.** Resolve A18.
 
-Plano: gravar a `Region` escolhida num arquivo JSON pequeno ao selecionar, e lê-lo em `App.__init__` para preencher `_selected_region`. Um clique sem arrastar (volta à tela cheia) apaga o arquivo.
-
-Condição de disparo: junto da etapa das teclas (I11).
+`ui/area_store.py` (novo) grava a área em `area.json`, fora do versionamento, e a restaura ao abrir. Arquivo ausente ou corrompido vale como tela cheia. Área fora da tela atual também, mas o arquivo fica, para voltar quando o app abrir no monitor dela. O clique sem arrastar apaga o arquivo. No `--image` a área não se aplica. Verificado com o app real: área restaurada ao abrir, regravada ao selecionar e apagada ao voltar à tela cheia.
 
 ---
 ## 4. Descartada

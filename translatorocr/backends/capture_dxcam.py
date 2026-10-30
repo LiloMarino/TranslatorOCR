@@ -34,8 +34,8 @@ class DXCamCapture:
         self._output_idx = max(0, monitor - 1)
         self._local = threading.local()
         # O DXcam devolve None quando o frame não mudou desde a última chamada. No modo
-        # freeze isso seria um bug visível: dois F8 seguidos numa tela parada fariam o
-        # segundo dizer "nenhum texto encontrado". Guardamos o último frame para reusar.
+        # freeze isso seria um bug visível: duas leituras seguidas numa tela parada fariam
+        # a segunda dizer "nenhum texto encontrado". Guardamos o último frame para reusar.
         self._last: np.ndarray | None = None
 
     @property

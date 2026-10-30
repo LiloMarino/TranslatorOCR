@@ -10,6 +10,7 @@ está amarrado ao seu modelo e trocar o arquivo não funcionaria sem mudar códi
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from .assets import ROOT
 
@@ -24,6 +25,8 @@ class CaptureConfig:
     # para valer de fato, exigiria subir `ocr.max_side_len` junto — o que custou 17x
     # mais tempo pelo mesmo resultado. Fica como knob, desligado por padrão.
     upscale: float = 1.0
+    # Onde a área selecionada fica guardada entre sessões (ver `ui/area_store.py`).
+    area_path: Path = ROOT / "area.json"
 
 
 @dataclass
@@ -183,14 +186,18 @@ class TranslationConfig:
     timeout: float = 10.0
     # Tradução é I/O de rede, então paralelizar tem ganho quase linear. Medido: uma
     # tela cheia com 82 blocos levava 64s em série, 11s com 8 workers. Mas 8 já
-    # provocou rate limit numa tela com 55 blocos, então o default é 4 — a rajada
-    # importa mais que o volume para este endpoint.
-    max_workers: int = 4
+    # provocou rate limit numa tela com 55 blocos, e 4 numa rajada de 40: a rajada importa
+    # mais que o volume para este endpoint. O registro de balões deixa poucos blocos novos
+    # por parada, então 2 workers bastam.
+    max_workers: int = 2
+    # Quanto a nuvem fica sem receber nada depois de rate limit ou queda de rede. Cada
+    # tentativa enquanto o bloqueio dura atrasa a rodada e pode prolongá-lo.
+    cloud_pause_s: float = 300.0
     # Ordem dos tiers. Cada um só recebe o que o anterior não conseguiu traduzir, o que
     # reusa a semântica de falha-por-item que TranslatorBackend já contratualiza. A
-    # NMT local vem primeiro: sem rede e sem cota, mede 0.8s para 50 balões contra 11.4s
-    # da nuvem, e a nuvem em rate limit gasta os retries a cada rodada antes de ceder.
-    tiers: list[str] = field(default_factory=lambda: ["nmt", "cloud"])
+    # nuvem vem primeiro porque traduz a fala inteira; o NMT local (sem rede, sem cota,
+    # 0.8s para 50 balões) responde por tudo que ela não devolve: sem rede, rate limit.
+    tiers: list[str] = field(default_factory=lambda: ["cloud", "nmt"])
     # CPU de propósito: o ctranslate2 carrega `cublas64_12.dll` por nome e este venv tem
     # CUDA 13 (veio do onnxruntime-gpu). Ligar a GPU aqui exigiria o wheel
     # nvidia-cublas-cu12 de ~553 MB mais um os.add_dll_directory manual, para disputar
@@ -245,26 +252,35 @@ class OverlayConfig:
     min_font_pt: int = 7
     max_font_pt: int = 42
     font_family: str = "Segoe UI"
+    # Quanto tempo a borda da área selecionada fica na tela.
+    outline_ms: int = 3000
 
 
 @dataclass
 class HotkeyConfig:
-    # Nomes resolvidos em ui/hotkey.py. "capture" dispara o pipeline, "toggle_translation"
-    # oculta/mostra a tradução para conferir o original — necessário porque a janela é
-    # transparente a input e nunca recebe um Esc por conta própria.
-    capture: str = "F8"
-    toggle_translation: str = "F9"
-    quit: str = "F10"
-    # Todo backend de captura já aceita região opcional (mss/dxcam); estas duas são a
-    # forma de escolher e conferir a região.
-    select_area: str = "F11"
-    # F12 era o default óbvio (ao lado de F8-F11), mas é comumente reservado por
-    # outro programa no Windows (overlay de GPU, gravador de tela) — nesta máquina
-    # `RegisterHotKey` recusou com erro 1409. F7 não colide com nada do app nem com
-    # essas reservas comuns.
-    show_region_outline: str = "F7"
-    # Liga/desliga o modo de leitura, que acompanha a rolagem (ver `ScrollConfig`).
-    scroll_mode: str = "F6"
+    # Nomes resolvidos em ui/hotkey.py. `RegisterHotKey` consome a tecla no sistema inteiro:
+    # o modificador é o que mantém as teclas de função livres para o navegador em foco.
+    # Liga/desliga a tradução, que acompanha a rolagem (ver `ScrollConfig`).
+    reading: str = "Alt+1"
+    # Oculta/mostra a tradução para conferir o original. Precisa de tecla porque a janela
+    # é transparente a input e nunca recebe um Esc por conta própria.
+    hide_translation: str = "Alt+2"
+    # Todo backend de captura já aceita região opcional (mss/dxcam).
+    select_area: str = "Alt+3"
+
+
+@dataclass
+class CollectorConfig:
+    """`--collect`: grava as telas reais para os scripts de avaliação (`core/collector.py`)."""
+
+    # Fora do versionamento, como `eval/pages/`: são páginas de terceiros.
+    root: Path = ROOT / "eval" / "captures"
+    # Diferença média de cinza abaixo da qual a tela repete a última gravada. É bem acima
+    # de `ScrollConfig.min_change` porque uma parada quase no mesmo lugar não acrescenta
+    # nada à amostra.
+    min_change: float = 2.0
+    downscale: float = 0.25
+    webp_quality: int = 90
 
 
 @dataclass
@@ -280,4 +296,6 @@ class Config:
     llm: LLMConfig = field(default_factory=LLMConfig)
     overlay: OverlayConfig = field(default_factory=OverlayConfig)
     hotkeys: HotkeyConfig = field(default_factory=HotkeyConfig)
+    collector: CollectorConfig = field(default_factory=CollectorConfig)
     debug_dump: bool = False
+    collect: bool = False

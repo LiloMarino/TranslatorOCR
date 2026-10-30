@@ -67,7 +67,7 @@ WDA_EXCLUDEFROMCAPTURE = 0x00000011
 RGN_OR = 2
 RGN_DIFF = 4
 
-# Espessura da moldura que marca a área de captura (F7).
+# Espessura da moldura que marca a área de captura.
 _OUTLINE_WIDTH = 3
 
 
@@ -155,8 +155,8 @@ class OverlayWindow(QWidget):
         self._cfg = cfg
         self._blocks: list[TextBlock] = []
         self._status: str | None = None
-        # Independente de _blocks/_status: liga/desliga com o hotkey de outline, sem ser afetado
-        # pelo F9 nem pelo próximo F8. É só um guia visual da área de captura.
+        # Independente de _blocks/_status: ocultar a tradução ou uma nova leitura não mexem
+        # nele. É só um guia visual da área de captura.
         self._outline_region: Region | None = None
         # Oculta as caixas sem descartá-las: ao mostrar de novo, o que chegou nesse meio
         # tempo (rolagem, nova leitura) já está em dia.
@@ -232,16 +232,14 @@ class OverlayWindow(QWidget):
     def clear_status(self, message: str) -> None:
         """Apaga a mensagem só se ela ainda for a que está na tela.
 
-        Para os timers de "Pronto" e "Nenhum texto encontrado": com `clear()` eles
-        apagavam também a tradução que chegasse antes de o timer vencer — F8 logo depois
-        do "Pronto" mostrava a tradução por meio segundo e sumia.
+        Para os timers de "Pronto" e "Nenhum texto encontrado": a tradução que chegar
+        antes de o timer vencer fica na tela.
         """
         if self._status == message:
             self.clear()
 
     def show_region_outline(self, region: Region) -> None:
-        """Mostra uma borda na área que o F8 capturaria — útil pra conferir a
-        seleção de área (F11) antes de rodar o pipeline de verdade."""
+        """Mostra uma borda na área capturada, para conferir a seleção."""
         self._outline_region = region
         self._refresh()
 

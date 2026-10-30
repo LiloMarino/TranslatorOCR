@@ -45,6 +45,10 @@ def _icon() -> QIcon:
     return QIcon(pixmap)
 
 
+def _menu_text(command: Command) -> str:
+    return f"{command.label}\t{command.key}" if command.key else command.label
+
+
 class TrayIcon(QSystemTrayIcon):
     def __init__(
         self,
@@ -62,11 +66,11 @@ class TrayIcon(QSystemTrayIcon):
 
         menu = QMenu()
         for command in commands:
-            action = menu.addAction(f"{command.label}\t{command.key}")
+            action = menu.addAction(_menu_text(command))
             assert action is not None
             action.setCheckable(command.toggle)
             action.triggered.connect(lambda _checked=False, c=command: c.run())
-            if command.toggle:
+            if command.toggle and command.key:
                 self._toggles[command.key] = action
         menu.addSeparator()
 
@@ -82,7 +86,7 @@ class TrayIcon(QSystemTrayIcon):
         details.toggled.connect(on_verbose)
         menu.addSeparator()
 
-        quit_action = menu.addAction(f"{quit_command.label}\t{quit_command.key}")
+        quit_action = menu.addAction(_menu_text(quit_command))
         assert quit_action is not None
         quit_action.triggered.connect(lambda _checked=False: quit_command.run())
 
@@ -90,7 +94,7 @@ class TrayIcon(QSystemTrayIcon):
         self._menu = menu
         self.setContextMenu(menu)
         self.activated.connect(self._on_activated)
-        self._translate = commands[0].run if commands else None
+        self._primary = commands[0].run if commands else None
         self.set_state("Carregando...")
 
     def set_state(self, text: str) -> None:
@@ -103,9 +107,9 @@ class TrayIcon(QSystemTrayIcon):
             action.setChecked(checked)
 
     def _on_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
-        # Clique simples no ícone traduz — é o comando mais usado.
-        if reason == QSystemTrayIcon.ActivationReason.Trigger and self._translate is not None:
-            self._translate()
+        # Clique simples no ícone roda o primeiro comando da lista, o mais usado.
+        if reason == QSystemTrayIcon.ActivationReason.Trigger and self._primary is not None:
+            self._primary()
 
     def _fill_monitors(self) -> None:
         assert self._monitors is not None

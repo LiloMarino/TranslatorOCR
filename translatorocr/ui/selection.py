@@ -1,4 +1,4 @@
-"""Seleção de área de captura por clique-e-arrastar (F11).
+"""Seleção de área de captura por clique-e-arrastar.
 
 Ao contrário do `OverlayWindow`, esta janela **não** é click-through — ela existe
 justamente para receber o mouse. Cobre a tela do monitor configurado e desenha um

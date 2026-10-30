@@ -14,7 +14,8 @@ import cv2
 from ..backends.base import CaptureBackend, LLMBackend, OCRBackend, TranslatorBackend
 from ..config import Config
 from ..models import Capture, Region, TextBlock
-from .ledger import BlockLedger
+from .collector import CaptureCollector
+from .ledger import BlockLedger, Reading
 
 log = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ class Pipeline:
         translator: TranslatorBackend,
         llm: LLMBackend | None = None,
         ledger: BlockLedger | None = None,
+        collector: CaptureCollector | None = None,
     ) -> None:
         self._cfg = config
         self._capture = capture
@@ -35,6 +37,22 @@ class Pipeline:
         self._translator = translator
         self._llm = llm
         self._ledger = ledger
+        self._collector = collector
+
+    def _collect(
+        self,
+        shot: Capture,
+        blocks: list[TextBlock],
+        pending: list[TextBlock],
+        reading: Reading | None,
+    ) -> None:
+        if self._collector is None:
+            return
+        context: dict[int, list[str]] = {}
+        for block in pending:
+            before = self._ledger.context(reading, block) if self._ledger and reading else []
+            context[id(block)] = [entry.source for entry in before]
+        self._collector.save(shot, blocks, context)
 
     def _grab(self, region: Region | None) -> Capture | None:
         shot = self._capture.grab(region)
@@ -127,6 +145,7 @@ class Pipeline:
             if self._ledger and reading:
                 self._ledger.record(reading, pending)
         t_translate = time.perf_counter()
+        self._collect(shot, blocks, pending, reading)
 
         log.info(
             "pipeline: %d linhas → %d blocos (%d após o gate, %d traduzidos, %d do registro) | "

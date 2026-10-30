@@ -1,8 +1,7 @@
 """Tradução por endpoint web gratuito, com cache e backoff.
 
-É o fallback de tradução e o único tier implementado inicialmente. É o mesmo tipo de
-endpoint que Translumo e os plugins do Textractor usam na prática, e o rate limit a
-ritmo humano é tolerável.
+É o tier principal de tradução. É o mesmo tipo de endpoint que Translumo e os plugins
+do Textractor usam na prática, e o rate limit a ritmo humano é tolerável.
 
 Essencial para confiabilidade: consulta ao cache antes da rede, backoff exponencial
 com jitter, e falha **por bloco** — uma linha que não traduziu não pode derrubar a
@@ -16,12 +15,18 @@ import random
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+import requests
+from deep_translator.exceptions import TooManyRequests
+
 from ..config import TranslationConfig
 from .cache import TranslationCache, resolve_with_cache
 
 log = logging.getLogger(__name__)
 
 NAME = "cloud"
+
+# Falhas do endpoint inteiro, não do bloco: repetir na hora só prolonga o bloqueio.
+_UNAVAILABLE = (TooManyRequests, requests.ConnectionError, requests.Timeout)
 
 # Sob rate limit o endpoint devolve a página de erro do Google, e o deep-translator
 # a entrega como se fosse texto traduzido. Sem esta checagem o overlay desenha
@@ -55,10 +60,28 @@ class CloudTranslator:
         self._cfg = cfg
         self._cache = cache
         self._make = lambda src, tgt: GoogleTranslator(source=src, target=tgt)
+        self._paused_until = 0.0
+
+    def _paused(self) -> bool:
+        return time.monotonic() < self._paused_until
+
+    def _pause(self, reason: object) -> None:
+        # Cada worker do lote pode chegar aqui: a pausa e o aviso valem uma vez só.
+        if self._paused():
+            return
+        self._paused_until = time.monotonic() + self._cfg.cloud_pause_s
+        minutes = self._cfg.cloud_pause_s / 60
+        log.warning(
+            "Nuvem indisponível (%s): usando a tradução offline por %.0f min",
+            type(reason).__name__,
+            minutes,
+        )
 
     def _translate_one(self, text: str, source: str, target: str) -> str | None:
         delay = self._cfg.backoff_base
         for attempt in range(1, self._cfg.max_retries + 1):
+            if self._paused():
+                return None
             try:
                 result = self._make(source, target).translate(text)
                 if not result:
@@ -70,6 +93,9 @@ class CloudTranslator:
                     # sem tradução em vez de exibir a página de erro.
                     raise RuntimeError("resposta do endpoint parece página de erro")
                 return result
+            except _UNAVAILABLE as exc:
+                self._pause(exc)
+                return None
             except Exception as exc:  # noqa: BLE001 — a lib levanta tipos variados
                 if attempt == self._cfg.max_retries:
                     log.warning("Tradução falhou após %d tentativas: %s", attempt, exc)
@@ -80,6 +106,8 @@ class CloudTranslator:
 
     def translate(self, texts: list[str], source: str, target: str) -> list[str | None]:
         def run(pending: list[int]) -> list[str | None]:
+            if self._paused():
+                return [None] * len(pending)
             # I/O de rede, então o ganho é quase linear no número de workers — em série,
             # uma página com dezenas de blocos levava mais de um minuto.
             workers = min(self._cfg.max_workers, len(pending))

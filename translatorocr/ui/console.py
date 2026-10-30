@@ -67,12 +67,13 @@ def progress(message: str) -> None:
 
 def ready(seconds: float, commands: list[Command]) -> None:
     global _open_line
-    print(f"{_CLEAR_LINE}  {GREEN}Pronto{RESET} {DIM}em {seconds:.1f}s · tradução offline{RESET}\n")
+    print(f"{_CLEAR_LINE}  {GREEN}Pronto{RESET} {DIM}em {seconds:.1f}s{RESET}\n")
     _open_line = False
-    width = max(len(c.key) for c in commands)
-    for command in commands:
-        _print(f"  {BOLD}{command.key:<{width}}{RESET}  {command.help}")
-    _print(f"\n  {DIM}Também pelo ícone perto do relógio.{RESET}\n")
+    keyed = [(c.key, c.help) for c in commands if c.key]
+    width = max(len(key) for key, _ in keyed)
+    for key, text in keyed:
+        _print(f"  {BOLD}{key:<{width}}{RESET}  {text}")
+    _print(f"\n  {DIM}O resto, inclusive sair, fica no ícone perto do relógio.{RESET}\n")
 
 
 def translated(blocks: int, review: int, seconds: float) -> None:
