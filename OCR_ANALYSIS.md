@@ -82,7 +82,7 @@ Vinha registrado como comentário em `ocr_rapid.py`. Os pesos da geração segui
 
 **A16 — A ordem padrão dos tiers põe o tradutor mais literal na frente**
 `config.py:TranslationConfig.tiers`. O default é `["nmt", "cloud"]`, escolhido pela latência (0.8 s para 50 blocos contra 11.4 s). A nuvem só recebe o que o NMT não traduziu, então na prática nunca é usada.
-✅ **Resolvido via I9 — o default passou a ser `["cloud", "nmt"]`.**
+⚠️ **Confirmado. A correção é o I9, bloqueada por A19: o default segue `["nmt", "cloud"]`.**
 
 **A19 — Com a nuvem na frente, cada rodada paga os retries antes de cair no NMT**
 `backends/translate_cloud.py`, `backends/chain.py`. O endpoint gratuito bloqueia por rate limit (medido em 2026-10-30: depois de uma rajada de 40 blocos, até chamadas sequenciais de 1 por segundo voltaram 429). O `ChainTranslator` não lembra que a nuvem falhou: cada rodada tenta de novo, esgota as 3 tentativas com backoff e só então entrega ao NMT. Medido nessa condição: 12.4 s para 5 blocos e 45.6 s para 25, todos traduzidos, mas pelo NMT. Além disso, o que o NMT traduz nesse intervalo fica no cache sob a mesma chave, e a nuvem não o refaz quando volta.
@@ -153,7 +153,7 @@ Endossada como experimento. Em avaliação — ver ROADMAP.
 
 **I9. Google gratuito como tradutor principal** *(origem: própria)*
 Inverter a ordem dos tiers para `["cloud", "nmt"]`: a nuvem traduz e o opus-mt fica de reserva offline.
-Endossada. Implementada — ver ROADMAP.
+Endossada. Pendente, depois de A19 — ver ROADMAP.
 
 **I10. TranslateGemma 4B como tradutor offline com contexto** *(origem: própria)*
 Um modelo de tradução local que recebe como contexto os últimos balões em ordem de leitura. Só entra como tier se ganhar ou empatar com o Google num teste às cegas sobre balões reais.

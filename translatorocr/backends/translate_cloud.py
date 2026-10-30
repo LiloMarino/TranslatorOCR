@@ -1,7 +1,8 @@
 """Tradução por endpoint web gratuito, com cache e backoff.
 
-É o tier principal de tradução. É o mesmo tipo de endpoint que Translumo e os plugins
-do Textractor usam na prática, e o rate limit a ritmo humano é tolerável.
+É o fallback de tradução e o único tier implementado inicialmente. É o mesmo tipo de
+endpoint que Translumo e os plugins do Textractor usam na prática, e o rate limit a
+ritmo humano é tolerável.
 
 Essencial para confiabilidade: consulta ao cache antes da rede, backoff exponencial
 com jitter, e falha **por bloco** — uma linha que não traduziu não pode derrubar a

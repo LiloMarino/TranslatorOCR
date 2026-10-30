@@ -8,7 +8,7 @@
 >
 > **Regra de sincronização:** os dois documentos usam os mesmos IDs (`A#`, `P#`, `I#`, `S#`) e devem sempre concordar sobre a decisão vigente de cada item.
 >
-> **Última mudança (2026-10-30):** Etapa 1b da retomada: o registro de balões está implementado (I13). A tradução deixa de piscar entre paradas e rolar de volta redesenha sem OCR; o contexto de tradução existe, mas só passa a ser usado com o I10.
+> **Última mudança (2026-10-30):** A nuvem como tier principal (I9) foi revertida: o rate limit do endpoint (A19) faz cada rodada pagar os retries antes do NMT. O I9 volta a Pendente, à espera de um tratamento para o A19.
 
 ## Glossário
 
@@ -31,6 +31,7 @@
 | **A10** | O tradutor roda em CPU por incompatibilidade de versão de cuBLAS; correção conhecida e cara | ⚠️ |
 | **A11** | A geração seguinte do OCR não é alcançável na versão atual do rapidocr; reavaliar ao subir de versão | ⚠️ |
 | **A15** | O contexto de tradução só existe no tier LLM, e na ordem de chegada | ⚠️ |
+| **A16** | A ordem padrão dos tiers põe o tradutor mais literal (NMT) na frente; a correção (I9) espera o A19 | ⚠️ |
 | **A17** | Seis comandos em teclas de função globais, uma por comando | ⚠️ |
 | **A18** | A área selecionada vive só na memória do processo | ⚠️ |
 | **A19** | Com a nuvem na frente, cada rodada paga os retries do rate limit antes de cair no NMT | ⚠️ |
@@ -40,13 +41,14 @@
 | [**I6**](#i6) | Gabarito por dois professores (PaddleOCR-VL e Baberu OCR) sobre as capturas | ⏳ |
 | [**I7**](#i7) | OCR com model_type = server, medido contra o gabarito | 🔍 |
 | [**I8**](#i8) | comic-text-detector no lugar do DBNet em ocr_composite.py | 🔍 |
+| [**I9**](#i9) | Google gratuito como tradutor principal: tiers = [cloud, nmt] | ⏳ |
 | [**I10**](#i10) | TranslateGemma 4B offline, com os balões anteriores como contexto | ⏳ |
 | [**I11**](#i11) | Alt+1 liga/desliga, Alt+2 oculta/mostra, Alt+3 seleciona a área | ⏳ |
 | [**I12**](#i12) | Persistir a área selecionada entre sessões | ⏳ |
 | [**I14**](#i14) | OCR só na faixa que entrou na tela, em vez da tela inteira | 🔍 |
 
 <details>
-<summary><strong>Resolvido / descartado / informativo (15 itens — clique pra expandir)</strong></summary>
+<summary><strong>Resolvido / descartado / informativo (13 itens — clique pra expandir)</strong></summary>
 
 | ID | Resumo | Status |
 | --- | --- | --- |
@@ -57,13 +59,11 @@
 | **A12** | A leitura nova substituía a antiga mesmo quando a antiga estava certa (resolvido via I13) | ✅ |
 | **A13** | O cache de tradução só acerta com o texto idêntico; a posição agora passa na frente (resolvido via I13) | ✅ |
 | **A14** | O balão que saía da tela era descartado e nada guardava o que já foi lido (resolvido via I13) | ✅ |
-| **A16** | A ordem padrão dos tiers punha o tradutor mais literal (NMT) na frente (resolvido via I9) | ✅ |
 | [**S2**](#s2) | Eval cobra recall em toda vista, usando a posição gravada de cada balão | ✅ |
 | [**I1**](#i1) | Trocar o motor de OCR por outro modelo | 🚫 |
 | [**I2**](#i2) | Modo --image: o pipeline lê de um arquivo, sem a tela participar | ✅ |
 | [**I3**](#i3) | Modo de leitura (F6): as caixas acompanham a rolagem | ✅ |
 | [**I4**](#i4) | Capturar só a janela do navegador em vez da tela inteira | 🚫 |
-| [**I9**](#i9) | Google gratuito como tradutor principal: tiers = [cloud, nmt] | ✅ |
 | [**I13**](#i13) | Registro de balões: posição na tira, casamento por posição e contexto em ordem de leitura | ✅ |
 
 </details>
@@ -104,6 +104,8 @@
 | ID | Resumo | Status |
 | --- | --- | --- |
 | **A15** | O contexto de tradução só existe no tier LLM, e na ordem de chegada | ⚠️ |
+| **A16** | A ordem padrão dos tiers põe o tradutor mais literal (NMT) na frente; a correção (I9) espera o A19 | ⚠️ |
+| [**I9**](#i9) | Google gratuito como tradutor principal: tiers = [cloud, nmt] | ⏳ |
 | [**I10**](#i10) | TranslateGemma 4B offline, com os balões anteriores como contexto | ⏳ |
 
 ### Frente 5 — P5
@@ -135,7 +137,7 @@
 | **I3** | Modo de leitura (F6): as caixas acompanham a rolagem | P2 | — | Alto | Médio | Alto | Bom | ✅ Concluído |
 | **I5** | Coletor de capturas: --collect grava o que o OCR recebeu e o que o app leu e traduziu | P1 | — | Baixo | Baixo | Alto | Excelente | ⏳ Pendente |
 | **I6** | Gabarito por dois professores (PaddleOCR-VL e Baberu OCR) sobre as capturas | P1 | — | Alto | Médio | Alto | Bom | ⏳ Pendente |
-| **I9** | Google gratuito como tradutor principal: tiers = [cloud, nmt] | P4 | A16 | Baixo | Baixo | Alto | Excelente | ✅ Concluído |
+| **I9** | Google gratuito como tradutor principal: tiers = [cloud, nmt] | P4 | A16 | Baixo | Baixo | Alto | Excelente | ⏳ Pendente |
 | **I10** | TranslateGemma 4B offline, com os balões anteriores como contexto | P4 | A15 | Alto | Médio | Alto | Incerto | ⏳ Pendente |
 | **I11** | Alt+1 liga/desliga, Alt+2 oculta/mostra, Alt+3 seleciona a área | P5 | A17 | Médio | Baixo | Médio | Bom | ⏳ Pendente |
 | **I13** | Registro de balões: posição na tira, casamento por posição e contexto em ordem de leitura | P1, P4 | A12, A13, A14 | Alto | Médio | Alto | Bom | ✅ Concluído |
@@ -177,9 +179,9 @@ Condição de disparo: capturas coletadas (I5).
 <a id="i9"></a>
 **I9 — Google gratuito como tradutor principal: tiers = [cloud, nmt].** Resolve P4 no tier; o contexto entre frases é I10/I13.
 
-`TranslationConfig.tiers` passou a `["cloud", "nmt"]` em `config.py`; o `registry.build_translator` já montava a cadeia na ordem da lista, então nada mais mudou na construção. O opus-mt segue carregado como reserva e recebe só o que a nuvem não devolveu. Junto: `_KEY_VERSION` do cache subiu para 3, porque as entradas antigas eram do NMT e a chave não distingue o tier; o banner do console deixou de dizer "tradução offline"; README, diagrama e docstrings de `chain.py` e `translate_cloud.py` seguem a nova ordem.
+Plano: `TranslationConfig.tiers` passa a `["cloud", "nmt"]`, com o opus-mt de reserva offline. Foi aplicado e revertido na mesma sessão: o endpoint gratuito entrou em rate limit (A19) e, com a nuvem na frente, cada rodada esgota as 3 tentativas com backoff antes de ceder ao NMT (12.4 s para 5 blocos, 45.6 s para 25). Antes de reaplicar, o `ChainTranslator` precisa lembrar que a nuvem falhou: depois de um rate limit, vai direto ao NMT por alguns minutos e não grava no cache o que veio do fallback, para a nuvem refazer quando voltar. A `_KEY_VERSION` do cache sobe junto com a troca, porque a chave não distingue o tier e as entradas antigas são do NMT. README, diagrama, banner do console e docstrings de `chain.py` e `translate_cloud.py` acompanham a ordem.
 
-Medido: a cadeia sobe na ordem certa, mas a latência da nuvem não pôde ser medida, porque o endpoint estava bloqueando o IP por rate limit (A19). Nessa condição o fallback entregou 25 de 25 blocos, em 12.4 s para 5 e 45.6 s para 25, todos pelo NMT. Os números de latência com a nuvem respondendo ficam para quando o bloqueio passar.
+Condição de disparo: o tratamento de A19 pronto, e uma medição de latência com a nuvem respondendo (que não pôde ser feita com o IP bloqueado).
 
 <a id="i10"></a>
 **I10 — TranslateGemma 4B offline, com os balões anteriores como contexto.** Resolve P4 e ataca A15 pela raiz: o contexto vem do registro (I13), na ordem de leitura.

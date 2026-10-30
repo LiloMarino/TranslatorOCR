@@ -188,9 +188,9 @@ class TranslationConfig:
     max_workers: int = 4
     # Ordem dos tiers. Cada um só recebe o que o anterior não conseguiu traduzir, o que
     # reusa a semântica de falha-por-item que TranslatorBackend já contratualiza. A
-    # nuvem vem primeiro porque traduz a fala inteira; o NMT local (sem rede, sem cota,
-    # 0.8s para 50 balões) responde por tudo que ela não devolve: sem rede, rate limit.
-    tiers: list[str] = field(default_factory=lambda: ["cloud", "nmt"])
+    # NMT local vem primeiro: sem rede e sem cota, mede 0.8s para 50 balões contra 11.4s
+    # da nuvem, e a nuvem em rate limit gasta os retries a cada rodada antes de ceder.
+    tiers: list[str] = field(default_factory=lambda: ["nmt", "cloud"])
     # CPU de propósito: o ctranslate2 carrega `cublas64_12.dll` por nome e este venv tem
     # CUDA 13 (veio do onnxruntime-gpu). Ligar a GPU aqui exigiria o wheel
     # nvidia-cublas-cu12 de ~553 MB mais um os.add_dll_directory manual, para disputar
