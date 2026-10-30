@@ -155,9 +155,12 @@ class OverlayWindow(QWidget):
         self._cfg = cfg
         self._blocks: list[TextBlock] = []
         self._status: str | None = None
-        # Independente de _blocks/_status: liga/desliga com o hotkey de outline, sem ser limpo pelo
-        # F9 (dismiss) nem pelo próximo F8. É só um guia visual da área de captura.
+        # Independente de _blocks/_status: liga/desliga com o hotkey de outline, sem ser afetado
+        # pelo F9 nem pelo próximo F8. É só um guia visual da área de captura.
         self._outline_region: Region | None = None
+        # Oculta as caixas sem descartá-las: ao mostrar de novo, o que chegou nesse meio
+        # tempo (rolagem, nova leitura) já está em dia.
+        self.translation_hidden = False
         # Falso quando o Windows recusou a exclusão de captura: aí o app volta a apagar o
         # overlay antes de fotografar, e o modo de leitura fica indisponível.
         self.hidden_from_capture = False
@@ -222,6 +225,10 @@ class OverlayWindow(QWidget):
         self._status = None
         self._refresh()
 
+    def set_translation_hidden(self, hidden: bool) -> None:
+        self.translation_hidden = hidden
+        self._refresh()
+
     def clear_status(self, message: str) -> None:
         """Apaga a mensagem só se ela ainda for a que está na tela.
 
@@ -252,9 +259,12 @@ class OverlayWindow(QWidget):
         pad = self._cfg.padding
         return [
             self._to_logical(block.bbox).adjusted(-pad, -pad, pad, pad)
-            for block in self._blocks
+            for block in self._visible_blocks()
             if block.text
         ]
+
+    def _visible_blocks(self) -> list[TextBlock]:
+        return [] if self.translation_hidden else self._blocks
 
     def _status_rect(self) -> QRect | None:
         if not self._status:
@@ -335,7 +345,7 @@ class OverlayWindow(QWidget):
             self._paint_status(painter)
             return
 
-        paint_blocks(painter, self._blocks, self._cfg, self._to_logical, self._fit_font)
+        paint_blocks(painter, self._visible_blocks(), self._cfg, self._to_logical, self._fit_font)
 
     def _paint_status(self, painter: QPainter) -> None:
         rect = self._status_rect()

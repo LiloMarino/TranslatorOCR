@@ -165,7 +165,13 @@ class App(QObject):
                 self._on_toggle_outline,
                 toggle=True,
             ),
-            Command(keys.dismiss, "Limpar", "limpar a tradução da tela", self._on_dismiss),
+            Command(
+                keys.toggle_translation,
+                "Ocultar tradução",
+                "ocultar/mostrar a tradução para conferir o original — vale também no modo leitura",
+                self._on_toggle_translation,
+                toggle=True,
+            ),
         ]
         self.quit_command = Command(keys.quit, "Sair", "sair", self.quit)
 
@@ -230,6 +236,10 @@ class App(QObject):
     def _on_capture(self) -> None:
         if not self._loaded or self._busy:
             return
+        if not self._scroll_on and self.overlay.translation_hidden:
+            # Quem pede uma tradução quer vê-la; no modo leitura as leituras são
+            # automáticas e a escolha de ocultar permanece até o próximo F9.
+            self._set_translation_hidden(False)
         if not self.overlay.hidden_from_capture:
             # O overlay entraria na foto e o OCR releria a própria tradução.
             self.overlay.clear()
@@ -242,9 +252,14 @@ class App(QObject):
         # tela escolhida inteira.
         self.capture_requested.emit(self._region_for_capture())
 
-    def _on_dismiss(self) -> None:
-        self._current_blocks = []
-        self.overlay.clear()
+    def _on_toggle_translation(self) -> None:
+        self._set_translation_hidden(not self.overlay.translation_hidden)
+
+    def _set_translation_hidden(self, hidden: bool) -> None:
+        # `_current_blocks` segue o tempo todo (rolagem, novas leituras): ocultar só
+        # tira o desenho, então mostrar de novo já traz tudo em dia.
+        self.overlay.set_translation_hidden(hidden)
+        self.tray.set_checked(self._cfg.hotkeys.toggle_translation, hidden)
 
     def _region_for_capture(self) -> Region:
         if self._viewer is not None:
@@ -311,6 +326,7 @@ class App(QObject):
 
         self._scroll_on = not self._scroll_on
         self.tray.set_checked(key, self._scroll_on)
+        self._set_translation_hidden(False)
         if self._scroll_on:
             self._scroll_offset = 0
             self._capture_offset = 0

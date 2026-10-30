@@ -48,6 +48,7 @@ class ImageViewer(QWidget):
         self._blocks: list[TextBlock] = []
         self._status: str | None = None
         self._outline: Region | None = None
+        self.translation_hidden = False
         self.setWindowTitle(f"TranslatorOCR — {title}")
         self.resize(900, 820)
 
@@ -69,6 +70,10 @@ class ImageViewer(QWidget):
     def clear(self) -> None:
         self._blocks = []
         self._status = None
+        self.update()
+
+    def set_translation_hidden(self, hidden: bool) -> None:
+        self.translation_hidden = hidden
         self.update()
 
     def clear_status(self, message: str) -> None:
@@ -154,6 +159,8 @@ class ImageViewer(QWidget):
             self._paint_status(painter)
             return
 
+        if self.translation_hidden:
+            return
         painter.setOpacity(self._cfg.window_alpha / 255)
         paint_blocks(painter, self._blocks, self._cfg, self._to_logical, self._fit_font)
 

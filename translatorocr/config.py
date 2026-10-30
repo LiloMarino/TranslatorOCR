@@ -232,11 +232,11 @@ class OverlayConfig:
 
 @dataclass
 class HotkeyConfig:
-    # Nomes resolvidos em ui/hotkey.py. "capture" dispara o pipeline, "dismiss"
-    # apaga o overlay — necessário porque a janela é transparente a input e nunca
-    # recebe um Esc por conta própria.
+    # Nomes resolvidos em ui/hotkey.py. "capture" dispara o pipeline, "toggle_translation"
+    # oculta/mostra a tradução para conferir o original — necessário porque a janela é
+    # transparente a input e nunca recebe um Esc por conta própria.
     capture: str = "F8"
-    dismiss: str = "F9"
+    toggle_translation: str = "F9"
     quit: str = "F10"
     # Todo backend de captura já aceita região opcional (mss/dxcam); estas duas são a
     # forma de escolher e conferir a região.

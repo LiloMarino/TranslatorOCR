@@ -25,7 +25,7 @@ TranslatorOCR — tradutor de mangá, inglês → português
   F6   modo leitura — as traduções acompanham a rolagem e o que entra é traduzido sozinho quando você para
   F11  selecionar área — clique e arraste; um clique sem arrastar volta à tela cheia
   F7   mostrar/esconder a borda da área que o F8 captura
-  F9   limpar a tradução da tela
+  F9   ocultar/mostrar a tradução para conferir o original — vale também no modo leitura
   F10  sair
 
   Também pelo ícone perto do relógio.
