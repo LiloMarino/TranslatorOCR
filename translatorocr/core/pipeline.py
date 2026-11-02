@@ -130,7 +130,11 @@ class Pipeline:
 
         # Balão já traduzido e lido inteiro volta do registro com a tradução que tinha;
         # só o que o registro não conhece (ou conhece incompleto) vai para o tradutor.
-        pending = self._ledger.reconcile(reading, blocks) if self._ledger and reading else blocks
+        pending = (
+            self._ledger.reconcile(reading, blocks, shot.region)
+            if self._ledger and reading
+            else blocks
+        )
         if pending:
             translations = self._translator.translate(
                 [b.source for b in pending],

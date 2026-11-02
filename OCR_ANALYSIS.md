@@ -4,7 +4,7 @@
 >
 > **Legenda:** `A#` achado de leitura de código/medição · `P#` problema relatado · `I#` ideia pesada como candidata · `S#` síntese causal.
 >
-> **Última mudança (2026-10-30):** as teclas viraram Alt+1/2/3 (I11), a área selecionada passou a sobreviver entre sessões (I12) e o coletor de capturas entrou (I5). O Google é o tradutor principal, com pausa depois de rate limit (I9, A19).
+> **Última mudança (2026-11-02):** o modo de leitura (I3) ganhou o teto de salto contra a ambiguidade cíclica da correlação e deixou de vazar objetos GDI; o registro de balões (I13) passou a tirar o balão que duas leituras seguidas não acham, e a tela depois de cada leitura sai dele.
 
 ## Contexto e escopo
 
@@ -65,8 +65,8 @@ Vinha registrado como comentário em `ocr_rapid.py`. Os pesos da geração segui
 ⚠️ **Confirmado. Reavaliar quando o pacote subir de versão.**
 
 **A12 — A leitura nova substitui a antiga mesmo quando a antiga estava certa**
-`core/tracker.py:merge_tracked`. Na junção do que sobreviveu à rolagem com o que acabou de ser lido, a leitura nova manda; a única exceção é o balão novo cortado pela borda diante de um antigo lido inteiro. Um balão antigo lido certo, relido agora com uma letra trocada, vira a leitura trocada, e a tradução já desenhada muda junto.
-✅ **Resolvido via I13 — o registro mantém a primeira leitura inteira de cada balão.**
+Na junção do que sobreviveu à rolagem com o que acabou de ser lido, a leitura nova manda; a única exceção é o balão novo cortado pela borda diante de um antigo lido inteiro. Um balão antigo lido certo, relido agora com uma letra trocada, vira a leitura trocada, e a tradução já desenhada muda junto.
+✅ **Resolvido via I13 — o registro mantém a primeira leitura inteira de cada balão, e a tela depois de cada leitura é montada a partir dele.**
 
 **A13 — O cache de tradução só acerta com o texto idêntico**
 `backends/cache.py:make_key`. A chave é o hash do texto com espaços colapsados, e só isso. Uma leitura de OCR que difere em uma letra é um miss, e o mesmo balão é traduzido de novo (e pode sair diferente).

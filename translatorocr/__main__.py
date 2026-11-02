@@ -21,7 +21,7 @@ from .backends._ort import preload_cuda_dlls
 from .config import Config
 from .core.ledger import BlockLedger
 from .core.scroll import ScrollThread
-from .core.tracker import merge_tracked, shift_blocks
+from .core.tracker import shift_blocks
 from .core.worker import WorkerThread
 from .models import Region
 from .ui import console
@@ -112,7 +112,6 @@ class App(QObject):
     scroll_start = pyqtSignal()
     scroll_stop = pyqtSignal()
     scroll_region = pyqtSignal(object)
-    scroll_read = pyqtSignal()
 
     def __init__(
         self,
@@ -203,7 +202,6 @@ class App(QObject):
         self.scroll_start.connect(self.scroll.tracker.start)
         self.scroll_stop.connect(self.scroll.tracker.stop)
         self.scroll_region.connect(self.scroll.tracker.set_region)
-        self.scroll_read.connect(self.scroll.tracker.mark_read)
         self.scroll.tracker.moved.connect(self._on_scrolled)
         self.scroll.tracker.settled.connect(self._on_settled)
         self.scroll.tracker.lost.connect(self._on_lost)
@@ -409,11 +407,10 @@ class App(QObject):
             drift = self._scroll_offset - self._capture_offset
             region = self._region_for_capture()
             fresh = shift_blocks(blocks, drift, region) if drift else blocks
-            self._current_blocks = merge_tracked(self._current_blocks, fresh, self._cfg.scroll)
-            self.scroll_read.emit()
-            if self._settle_pending:
-                self._settle_pending = False
-                QTimer.singleShot(0, self._on_settled)
+            # O que a leitura achou, mais os balões do registro que ela não cobriu. O
+            # registro já tirou os que as leituras pararam de confirmar.
+            self._current_blocks = [*fresh, *self.ledger.restore(region, fresh)]
+            self._run_pending_settle()
             console.translated(
                 len(self._current_blocks),
                 sum(1 for b in self._current_blocks if b.needs_review),
@@ -444,6 +441,14 @@ class App(QObject):
         console.error(message)
         self.tray.set_state("Erro")
         self.overlay.set_status(f"Erro: {message}")
+        self._run_pending_settle()
+
+    def _run_pending_settle(self) -> None:
+        """Uma parada que chegou durante a leitura vira leitura agora: o rastreio já a
+        consumiu e não a repete sem novo movimento."""
+        if self._settle_pending:
+            self._settle_pending = False
+            QTimer.singleShot(0, self._on_settled)
 
     def quit(self) -> None:
         self.hotkeys.unregister_all()

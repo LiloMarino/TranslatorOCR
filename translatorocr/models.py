@@ -45,6 +45,13 @@ class Capture:
     origin: tuple[int, int]
     scale: float = 1.0
 
+    @property
+    def region(self) -> Region:
+        """A área do desktop que a imagem cobre."""
+        height, width = self.image.shape[:2]
+        ox, oy = self.origin
+        return Region(ox, oy, int(width / self.scale), int(height / self.scale))
+
     def to_desktop(self, bbox: BBox) -> BBox:
         """Converte um bbox do espaço da imagem para pixels físicos do desktop."""
         ox, oy = self.origin

@@ -53,6 +53,8 @@ class Entry:
     confidence: float
     partial: bool
     needs_review: bool
+    # Leituras seguidas que viram o balão inteiro e não o acharam (ver `reconcile`).
+    misses: int = 0
 
 
 @dataclass
@@ -145,11 +147,15 @@ class BlockLedger:
             self._last_read = now
             return Reading(offset=self._offset, generation=self._generation)
 
-    def reconcile(self, reading: Reading, blocks: list[TextBlock]) -> list[TextBlock]:
+    def reconcile(self, reading: Reading, blocks: list[TextBlock], seen: Region) -> list[TextBlock]:
         """Casa cada bloco lido com o registro por posição.
 
         O bloco casado cuja tradução vale (`_reusable`) herda o texto e a tradução
         guardados e sai da lista. Devolve só os blocos que ainda precisam de tradução.
+
+        `seen` é a área que a captura cobriu. A entrada que cabe inteira nela e não casou
+        com nenhum bloco conta uma falta, e com `max_misses` seguidas sai do registro: a
+        leitura olhou aquele lugar e não há texto lá.
         """
         with self._lock:
             if reading.generation != self._generation:
@@ -159,6 +165,7 @@ class BlockLedger:
             reading.segment = segment
             segment.used = self._tick()
 
+            found: set[int] = set()
             pending: list[TextBlock] = []
             for block in blocks:
                 strip = self._to_strip(block.bbox, reading.offset, segment)
@@ -166,6 +173,8 @@ class BlockLedger:
                 if entry is None:
                     pending.append(block)
                     continue
+                found.add(id(entry))
+                entry.misses = 0
                 if not _reusable(entry, block):
                     reading.replaces[id(block)] = entry
                     pending.append(block)
@@ -176,6 +185,13 @@ class BlockLedger:
                 if entry.partial and not is_partial(block):
                     entry.bbox = strip
                     entry.partial = False
+
+            for entry in segment.entries:
+                if id(entry) not in found and _inside(
+                    self._to_screen(entry.bbox, reading.offset, segment), seen
+                ):
+                    entry.misses += 1
+            segment.entries = [e for e in segment.entries if e.misses < self._cfg.max_misses]
             return pending
 
     def record(self, reading: Reading, pending: list[TextBlock]) -> None:
@@ -230,8 +246,7 @@ class BlockLedger:
             for entry in segment.entries:
                 if entry.partial or entry.translated is None:
                     continue
-                x1, y1, x2, y2 = entry.bbox
-                bbox = (x1, y1 + self._offset - segment.base, x2, y2 + self._offset - segment.base)
+                bbox = self._to_screen(entry.bbox, self._offset, segment)
                 if bbox[3] <= region.top or bbox[1] >= region.bottom:
                     continue
                 if any(overlap_fraction(bbox, s.bbox) >= self._overlap for s in shown):
@@ -262,6 +277,11 @@ class BlockLedger:
     def _to_strip(bbox: BBox, offset: int, segment: Segment) -> BBox:
         shift = segment.base - offset
         return (bbox[0], bbox[1] + shift, bbox[2], bbox[3] + shift)
+
+    @staticmethod
+    def _to_screen(strip: BBox, offset: int, segment: Segment) -> BBox:
+        shift = offset - segment.base
+        return (strip[0], strip[1] + shift, strip[2], strip[3] + shift)
 
     def _match(self, segment: Segment, strip: BBox) -> Entry | None:
         best, best_overlap = None, self._overlap
@@ -302,6 +322,11 @@ class BlockLedger:
             segment.base = delta
         self._current = segment
         return segment
+
+
+def _inside(bbox: BBox, region: Region) -> bool:
+    x1, y1, x2, y2 = bbox
+    return x1 >= region.left and y1 >= region.top and x2 <= region.right and y2 <= region.bottom
 
 
 def _reading_order(entries: list[Entry]) -> list[Entry]:

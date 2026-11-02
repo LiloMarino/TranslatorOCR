@@ -127,6 +127,12 @@ class ScrollConfig:
     # Deslocamento horizontal acima disto não é rolagem vertical: é scroll lateral ou
     # mudança de layout, e translação vertical não descreve o que aconteceu.
     max_dx: float = 8.0
+    # Maior deslocamento vertical por quadro em que se acredita, como fração da altura
+    # da região. A correlação de fase é cíclica: perto de meia altura o sinal fica
+    # ambíguo, e "desceu 500" sai como "subiu 500" com resposta alta. Medido em páginas
+    # reais: 0.35 não aceitou nenhuma medida errada em regiões de 600 e 1000 px; 0.40
+    # aceitou 10 erradas na de 600.
+    max_dy: float = 0.35
     # Piso de textura (desvio padrão do quadro reduzido). **Não é redundante com
     # `min_response`**: uma área totalmente lisa — o vão branco entre quadros de um
     # webtoon — devolve deslocamento zero com resposta 0.99, confiante e errada. Sem
@@ -157,6 +163,10 @@ class LedgerConfig:
     # tamanho: fala curta ("Yes.", "...") se repete pela página e casaria com qualquer
     # uma. Com dois ou mais textos iguais no mesmo deslocamento, o tamanho não importa.
     reanchor_min_chars: int = 12
+    # Leituras seguidas que viram o balão inteiro na tela e não o acharam até ele sair do
+    # registro. Uma basta para o fantasma que o rastreio deixou onde não há texto; duas
+    # poupam o balão real que o OCR perdeu numa posição e acha na seguinte.
+    max_misses: int = 2
 
 
 @dataclass

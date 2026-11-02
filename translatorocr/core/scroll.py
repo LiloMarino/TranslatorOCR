@@ -6,8 +6,8 @@ o que é Qt e o que é estado do laço.
 Por que uma thread separada da do pipeline: o pipeline leva ~0.5 s por rodada, e o laço
 precisa de um quadro a cada 60 ms. Compartilhando a thread, as caixas congelariam por
 meio segundo toda vez que a leitura rodasse — justamente quando o usuário acabou de
-parar de rolar e está olhando. O `MSSCapture` guarda o objeto `mss` em `threading.local`,
-então duas threads capturando ao mesmo tempo é seguro.
+parar de rolar e está olhando. Cada thread tem o seu `MSSCapture`: o laço cria o dele em
+`start`, dentro desta thread, e o pipeline usa o próprio.
 
 Três situações que o laço precisa distinguir, e que não são a mesma coisa:
 
@@ -56,8 +56,8 @@ class ScrollTracker(QObject):
         self._region: Region | None = None
         self._previous: np.ndarray | None = None
         self._still = 0
-        # Houve movimento desde a última vez que o pipeline rodou. Sem isto, uma tela
-        # parada dispararia leitura sem parar.
+        # Houve movimento desde o último `settled`. O próprio `settled` consome o
+        # movimento, então o que rolar durante a leitura pede outra na parada seguinte.
         self._dirty = True
         # Parte fracionária do deslocamento acumulada entre quadros: rolagem lenta
         # avança menos de 1 px por quadro, e truncar a cada quadro perderia tudo.
@@ -106,11 +106,6 @@ class ScrollTracker(QObject):
             self._capture.close()
         self._capture = None
         self._previous = None
-
-    @pyqtSlot()
-    def mark_read(self) -> None:
-        """O pipeline terminou: só volta a disparar depois de novo movimento."""
-        self._dirty = False
 
     def _tick(self) -> None:
         if self._capture is None:
@@ -180,6 +175,7 @@ class ScrollTracker(QObject):
     def _count_still(self) -> None:
         self._still += 1
         if self._still == self._scroll.settle_frames and self._dirty:
+            self._dirty = False
             self.settled.emit()
 
 

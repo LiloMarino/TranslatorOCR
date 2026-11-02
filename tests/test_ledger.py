@@ -15,6 +15,9 @@ from translatorocr.core.pipeline import Pipeline
 from translatorocr.models import Capture, Region, TextBlock, TextLine
 
 LONG = "Where are you going so late?"
+VIEWPORT = Region(0, 0, 800, 800)
+# Captura que não cobre balão nenhum: isola o casamento da contagem de faltas.
+BLIND = Region(0, 0, 0, 0)
 
 
 class Clock:
@@ -55,10 +58,10 @@ def block(
     )
 
 
-def read(ledger: BlockLedger, blocks: list[TextBlock]) -> list[TextBlock]:
+def read(ledger: BlockLedger, blocks: list[TextBlock], seen: Region = BLIND) -> list[TextBlock]:
     """Uma rodada completa: o que o tradutor recebe, traduzido e registrado."""
     reading = ledger.begin()
-    pending = ledger.reconcile(reading, blocks)
+    pending = ledger.reconcile(reading, blocks, seen)
     for item in pending:
         item.translated = f"pt:{item.source}"
     ledger.record(reading, pending)
@@ -186,7 +189,7 @@ def test_leitura_que_atravessa_um_lost_nao_e_registrada(ledger: BlockLedger):
     ledger.lost()
 
     blocks = [block(300)]
-    assert ledger.reconcile(reading, blocks) == blocks
+    assert ledger.reconcile(reading, blocks, BLIND) == blocks
     ledger.record(reading, blocks)
 
     again = block(300)
@@ -198,7 +201,7 @@ def test_leitura_que_atravessa_um_lost_nao_e_registrada(ledger: BlockLedger):
 
 def context_texts(ledger: BlockLedger, target: TextBlock, limit: int | None = None) -> list[str]:
     reading = ledger.begin()
-    ledger.reconcile(reading, [target])
+    ledger.reconcile(reading, [target], BLIND)
     return [e.source for e in ledger.context(reading, target, limit)]
 
 
@@ -261,9 +264,53 @@ def test_tempo_sem_leitura_zera_o_registro(ledger: BlockLedger, clock: Clock):
     assert read(ledger, [again]) == [again]
 
 
-# -- redesenho ao rolar de volta ----------------------------------------------
+# -- balão que as leituras deixam de achar ------------------------------------
 
-VIEWPORT = Region(0, 0, 800, 800)
+
+def test_balao_que_duas_leituras_nao_acham_sai_do_registro(ledger: BlockLedger):
+    """O fantasma: um balão registrado num lugar onde a tela não tem texto."""
+    read(ledger, [block(300)], VIEWPORT)
+
+    read(ledger, [], VIEWPORT)
+    assert len(ledger.restore(VIEWPORT, [])) == 1
+
+    read(ledger, [], VIEWPORT)
+    assert ledger.restore(VIEWPORT, []) == []
+
+
+def test_balao_achado_de_novo_zera_as_faltas(ledger: BlockLedger):
+    read(ledger, [block(300)], VIEWPORT)
+    read(ledger, [], VIEWPORT)
+    read(ledger, [block(300)], VIEWPORT)
+
+    read(ledger, [], VIEWPORT)
+    assert len(ledger.restore(VIEWPORT, [])) == 1
+
+
+def test_balao_fora_da_captura_nao_conta_falta(ledger: BlockLedger):
+    read(ledger, [block(300)], VIEWPORT)
+
+    ledger.scrolled(-600)
+    read(ledger, [], VIEWPORT)
+    read(ledger, [], VIEWPORT)
+
+    ledger.scrolled(+600)
+    assert len(ledger.restore(VIEWPORT, [])) == 1
+
+
+def test_balao_cortado_pela_borda_da_captura_nao_conta_falta(ledger: BlockLedger):
+    """A leitura só viu parte dele: não achar o texto inteiro ali não prova nada."""
+    read(ledger, [block(300)], VIEWPORT)
+
+    ledger.scrolled(-330)
+    read(ledger, [], VIEWPORT)
+    read(ledger, [], VIEWPORT)
+
+    ledger.scrolled(+330)
+    assert len(ledger.restore(VIEWPORT, [])) == 1
+
+
+# -- redesenho ao rolar de volta ----------------------------------------------
 
 
 def test_rolar_de_volta_redesenha_do_registro(ledger: BlockLedger):

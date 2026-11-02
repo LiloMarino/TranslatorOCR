@@ -13,9 +13,9 @@ import pytest
 
 from translatorocr.config import ScrollConfig
 from translatorocr.core.tracker import (
+    Shift,
     estimate_shift,
     is_partial,
-    merge_tracked,
     prepare,
     shift_blocks,
 )
@@ -131,6 +131,16 @@ def test_salto_grande_demais_nao_e_confiavel(cfg):
     assert not shift.trustworthy(cfg)
 
 
+def test_salto_perto_de_meia_altura_nao_e_confiavel(cfg):
+    """A correlação é cíclica: perto de meia altura o sinal do deslocamento é ambíguo, e
+    em página real a medida volta com o sinal trocado e resposta alta."""
+    trocado = Shift(dy=480.0, dx=0.0, response=0.9, texture=50.0, span=1000.0)
+    rapido = Shift(dy=-300.0, dx=0.0, response=0.9, texture=50.0, span=1000.0)
+
+    assert not trocado.trustworthy(cfg)
+    assert rapido.trustworthy(cfg)
+
+
 def test_formatos_diferentes_nao_sao_comparaveis(cfg):
     """A região de captura mudou no meio do caminho (troca de monitor, nova seleção)."""
     shift = estimate_shift(
@@ -184,52 +194,6 @@ def test_caixa_meio_fora_continua_valendo(cfg):
     restaram = shift_blocks([block((10, 20, 300, 120))], -60, region)
 
     assert restaram[0].bbox == (10, -40, 300, 60)
-
-
-# -- juntar leitura nova com o que já estava na tela ------------------------
-
-
-def test_leitura_inteira_anterior_vence_a_nova_cortada(cfg):
-    """A razão de o modo existir.
-
-    O balão foi lido inteiro antes; agora encostou na borda e saiu pela metade. Deixar a
-    nova ganhar transformaria uma tradução completa em meia tradução.
-    """
-    inteiro = block((10, 100, 300, 200), text="frase inteira")
-    cortado = block((10, 100, 300, 190), text="frase pela", partial=True)
-
-    resultado = merge_tracked([inteiro], [cortado], cfg)
-
-    assert [b.source for b in resultado] == ["frase inteira"]
-
-
-def test_leitura_nova_completa_substitui_a_antiga(cfg):
-    antiga = block((10, 100, 300, 200), text="lido antes")
-    nova = block((12, 102, 302, 202), text="lido agora")
-
-    resultado = merge_tracked([antiga], [nova], cfg)
-
-    assert [b.source for b in resultado] == ["lido agora"]
-
-
-def test_cortado_anterior_cede_para_a_leitura_inteira(cfg):
-    """O caminho inverso: rolou até o balão aparecer todo, então a nova manda."""
-    cortado = block((10, 100, 300, 190), text="frase pela", partial=True)
-    inteiro = block((10, 100, 300, 200), text="frase inteira")
-
-    resultado = merge_tracked([cortado], [inteiro], cfg)
-
-    assert [b.source for b in resultado] == ["frase inteira"]
-
-
-def test_bloco_antigo_sem_correspondente_e_mantido(cfg):
-    """Já foi lido quando estava visível; sumir agora seria pior que continuar."""
-    longe = block((10, 100, 300, 200), text="de antes")
-    nova = block((600, 400, 900, 500), text="de agora")
-
-    resultado = merge_tracked([longe], [nova], cfg)
-
-    assert sorted(b.source for b in resultado) == ["de agora", "de antes"]
 
 
 def test_is_partial_olha_as_linhas():

@@ -22,7 +22,6 @@ import cv2
 import numpy as np
 
 from ..config import ScrollConfig
-from ..geometry import overlap_fraction
 from ..models import Region, TextBlock
 
 
@@ -60,6 +59,8 @@ class Shift:
     response: float
     # Desvio padrão do quadro. Ver `trustworthy`.
     texture: float
+    # Altura do quadro, em pixels da imagem original.
+    span: float
 
     def trustworthy(self, cfg: ScrollConfig) -> bool:
         """Se dá para acreditar neste deslocamento.
@@ -68,17 +69,22 @@ class Shift:
         medição: um quadro totalmente liso — o vão branco entre dois quadrinhos de um
         webtoon — devolve deslocamento zero com resposta 0.99. Confiante e errado. Sem o
         piso, as caixas ficariam paradas enquanto a página rola embaixo delas.
+
+        O teto de `dy` também não é redundante: a correlação é cíclica, e um salto perto
+        de meia altura volta com o sinal trocado e resposta alta. As caixas e o registro
+        pulariam uma tela inteira na direção errada.
         """
         return (
             self.response >= cfg.min_response
             and abs(self.dx) <= cfg.max_dx
+            and abs(self.dy) <= cfg.max_dy * self.span
             and self.texture >= cfg.min_texture
         )
 
 
 # Devolvido quando não há com o que comparar, ou os quadros têm formatos diferentes (a
 # região de captura mudou). Nunca é confiável: `response` e `texture` zerados reprovam.
-UNKNOWN = Shift(dy=0.0, dx=0.0, response=0.0, texture=0.0)
+UNKNOWN = Shift(dy=0.0, dx=0.0, response=0.0, texture=0.0, span=0.0)
 
 
 def estimate_shift(previous: np.ndarray, current: np.ndarray, cfg: ScrollConfig) -> Shift:
@@ -102,6 +108,7 @@ def estimate_shift(previous: np.ndarray, current: np.ndarray, cfg: ScrollConfig)
         response=float(response),
         # O menor dos dois: um quadro liso entrando é tão ruim quanto um saindo.
         texture=texture,
+        span=previous.shape[0] * back,
     )
 
 
@@ -126,30 +133,3 @@ def shift_blocks(blocks: list[TextBlock], dy: int, region: Region) -> list[TextB
         block.bbox = (x1, y1, x2, y2)
         kept.append(block)
     return kept
-
-
-def merge_tracked(
-    kept: list[TextBlock], fresh: list[TextBlock], cfg: ScrollConfig
-) -> list[TextBlock]:
-    """Junta o que sobreviveu à rolagem com o que acabou de ser lido.
-
-    A leitura nova manda, com **uma** exceção que é a razão de o modo existir: se o balão
-    novo está cortado pela borda e o antigo, no mesmo lugar, foi lido inteiro, vale o
-    antigo. É o que impede uma tradução completa de virar meia tradução só porque o balão
-    encostou na borda enquanto a página rolava.
-
-    Bloco antigo sem correspondente novo é mantido: ele já foi lido quando estava
-    visível, e sumir seria pior do que continuar mostrando.
-    """
-    out = list(fresh)
-    for old in kept:
-        best, best_overlap = None, cfg.merge_overlap
-        for index, new in enumerate(out):
-            score = overlap_fraction(old.bbox, new.bbox)
-            if score >= best_overlap:
-                best, best_overlap = index, score
-        if best is None:
-            out.append(old)
-        elif is_partial(out[best]) and not is_partial(old):
-            out[best] = old
-    return out

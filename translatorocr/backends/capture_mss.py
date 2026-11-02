@@ -5,14 +5,15 @@ de DPI, capturando a região errada em display escalado. Aqui a região é sempr
 em pixels físicos, e o processo é declarado per-monitor DPI aware em `__main__` antes
 de qualquer captura.
 
-O objeto `mss` não é thread-safe e é criado preguiçosamente, dentro da thread que
-de fato captura.
+Cada `MSSCapture` pertence a uma thread só, a que captura, e o objeto `mss` nasce
+preguiçosamente nela e vive até o `close()`. Ele segura três objetos GDI (o DC da tela,
+o DC de memória e o bitmap), e o Windows corta o processo em 10 mil: o objeto é aberto
+uma vez e reaproveitado em toda captura.
 """
 
 from __future__ import annotations
 
 import ctypes
-import threading
 from ctypes import wintypes
 from typing import Any
 
@@ -26,17 +27,15 @@ from ..models import Capture, Region
 class MSSCapture:
     def __init__(self, monitor: int = 1) -> None:
         self._monitor_index = monitor
-        self._local = threading.local()
+        # `mss.MSS()` devolve a implementação da plataforma; o pacote não expõe um tipo
+        # público estável para anotar isso.
+        self._sct_obj: Any = None
 
     @property
     def _sct(self) -> Any:
-        # `mss.mss()` é uma factory que devolve a implementação da plataforma; o
-        # pacote não expõe um tipo público estável para anotar isso.
-        sct = getattr(self._local, "sct", None)
-        if sct is None:
-            sct = mss.mss()
-            self._local.sct = sct
-        return sct
+        if self._sct_obj is None:
+            self._sct_obj = mss.MSS()
+        return self._sct_obj
 
     def _monitor(self) -> dict:
         monitors = self._sct.monitors
@@ -69,9 +68,8 @@ class MSSCapture:
         return Capture(image=image, origin=(r.left, r.top), scale=1.0)
 
     def close(self) -> None:
-        sct = getattr(self._local, "sct", None)
+        sct, self._sct_obj = self._sct_obj, None
         if sct is not None:
-            self._local.sct = None
             sct.close()
 
 
