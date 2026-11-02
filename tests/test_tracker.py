@@ -77,6 +77,18 @@ def test_rolar_para_baixo_move_o_conteudo_para_cima(cfg, rolagem, tolerancia):
     assert shift.trustworthy(cfg)
 
 
+# Alturas cuja imagem reduzida o OpenCV completaria até um tamanho ímpar (135 e 225 a
+# 1/4), ao lado de alturas que já caíam num tamanho par. A rolagem soma o erro de cada
+# quadro, então aqui a tolerância é a de um quadro que não pode deixar resto.
+@pytest.mark.parametrize("altura", [540, 536, 900, 800, 1000])
+def test_medida_nao_depende_da_altura_da_regiao(cfg, altura):
+    page = textured()
+    antes = prepare(viewport(page, 100, altura), cfg.downscale)
+    depois = prepare(viewport(page, 120, altura), cfg.downscale)
+
+    assert estimate_shift(antes, depois, cfg).dy == pytest.approx(-20, abs=0.5)
+
+
 def test_quadro_liso_nao_e_confiavel_apesar_da_resposta_alta(cfg):
     """A armadilha desta medição.
 

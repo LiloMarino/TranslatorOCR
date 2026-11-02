@@ -11,7 +11,9 @@ de fato captura.
 
 from __future__ import annotations
 
+import ctypes
 import threading
+from ctypes import wintypes
 from typing import Any
 
 import cv2
@@ -49,8 +51,19 @@ class MSSCapture:
         return Region(m["left"], m["top"], m["width"], m["height"])
 
     def grab(self, region: Region | None = None) -> Capture | None:
-        r = region or self.monitor_region()
-        raw = self._sct.grab({"left": r.left, "top": r.top, "width": r.width, "height": r.height})
+        try:
+            r = region or self.monitor_region()
+            raw = self._sct.grab(
+                {"left": r.left, "top": r.top, "width": r.width, "height": r.height}
+            )
+        except Exception as exc:
+            # O DC da tela que o `mss` segura só vale para a área de trabalho em que foi
+            # aberto, e o Windows troca de área de trabalho na tela bloqueada, no UAC e no
+            # Ctrl+Alt+Del. Cada falha descarta o objeto, e a próxima captura abre outro.
+            self.close()
+            exc.add_note(f"objetos GDI abertos no processo: {_gdi_objects()}")
+            raise
+
         # mss devolve BGRA; o resto do pipeline trabalha em BGR.
         image = cv2.cvtColor(np.asarray(raw), cv2.COLOR_BGRA2BGR)
         return Capture(image=image, origin=(r.left, r.top), scale=1.0)
@@ -58,5 +71,15 @@ class MSSCapture:
     def close(self) -> None:
         sct = getattr(self._local, "sct", None)
         if sct is not None:
-            sct.close()
             self._local.sct = None
+            sct.close()
+
+
+def _gdi_objects() -> int:
+    """Quantos objetos GDI o processo tem abertos. O Windows corta em 10 mil, e chegar
+    perto disso é o outro jeito de a captura começar a falhar."""
+    kernel32 = ctypes.WinDLL("kernel32")
+    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+    user32 = ctypes.WinDLL("user32")
+    user32.GetGuiResources.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    return user32.GetGuiResources(kernel32.GetCurrentProcess(), 0)  # GR_GDIOBJECTS

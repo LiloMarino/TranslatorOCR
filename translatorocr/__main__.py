@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import ctypes
 import logging
+import signal
 import sys
 import time
 
@@ -481,6 +482,10 @@ def main(argv: list[str] | None = None) -> int:
         console.info(f"gravando as telas traduzidas em {config.collector.root}")
     viewer, capture = _build_image_mode(args.image, config)
     controller = App(config, screen, args.verbose, viewer=viewer, capture=capture)
+    # Ctrl+C no terminal encerra pelo `finally` abaixo, como o "Sair" da bandeja. O Python
+    # só atende o sinal quando volta a executar, o que no laço do Qt acontece a cada
+    # mensagem do Windows: o filtro das teclas globais é Python.
+    signal.signal(signal.SIGINT, lambda *_: app.quit())
     try:
         return app.exec()
     finally:

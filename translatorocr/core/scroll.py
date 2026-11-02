@@ -62,6 +62,7 @@ class ScrollTracker(QObject):
         # Parte fracionária do deslocamento acumulada entre quadros: rolagem lenta
         # avança menos de 1 px por quadro, e truncar a cada quadro perderia tudo.
         self._residual = 0.0
+        self._capture_failing = False
 
     @pyqtSlot(object)
     def set_region(self, region: Region | None) -> None:
@@ -83,6 +84,7 @@ class ScrollTracker(QObject):
         self._previous = None
         self._still = 0
         self._residual = 0.0
+        self._capture_failing = False
         # Já começa sujo para a primeira parada disparar uma leitura: ligar o modo tem
         # que traduzir o que está na tela, sem esperar o usuário rolar.
         self._dirty = True
@@ -113,11 +115,21 @@ class ScrollTracker(QObject):
     def _tick(self) -> None:
         if self._capture is None:
             return
+        # A falha de captura costuma durar (tela bloqueada, UAC): o laço avisa no começo e
+        # na volta, e segue tentando a cada quadro. O que a tela mostrar na volta não tem
+        # relação com o último quadro, então a falha conta como rastro perdido.
         try:
             shot = self._capture.grab(self._region)
         except Exception:
-            log.exception("Falha ao capturar durante o rastreio")
+            if not self._capture_failing:
+                self._capture_failing = True
+                log.exception("Falha ao capturar durante o rastreio; tentando de novo")
+                self._previous = None
+                self._lose()
             return
+        if self._capture_failing:
+            self._capture_failing = False
+            log.warning("A captura voltou; o rastreio recomeça")
         if shot is None:
             return
 
@@ -142,10 +154,7 @@ class ScrollTracker(QObject):
                 shift.response,
                 shift.texture,
             )
-            self._still = 0
-            self._dirty = True
-            self._residual = 0.0
-            self.lost.emit()
+            self._lose()
             return
 
         # Rolagem lenta anda menos de 1 px por quadro; o resto fica acumulado para não
@@ -161,6 +170,12 @@ class ScrollTracker(QObject):
         self._still = 0
         self._dirty = True
         self.moved.emit(whole)
+
+    def _lose(self) -> None:
+        self._still = 0
+        self._dirty = True
+        self._residual = 0.0
+        self.lost.emit()
 
     def _count_still(self) -> None:
         self._still += 1

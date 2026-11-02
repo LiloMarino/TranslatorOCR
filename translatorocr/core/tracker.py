@@ -34,7 +34,19 @@ def prepare(image: np.ndarray, downscale: float) -> np.ndarray:
     """
     small = cv2.resize(image, None, fx=downscale, fy=downscale, interpolation=cv2.INTER_AREA)
     gray = small if small.ndim == 2 else cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
-    return gray.astype(np.float64)
+    # O `phaseCorrelate` completa a entrada até `getOptimalDFTSize`, e com esse tamanho
+    # ímpar todo deslocamento sai com meio pixel de viés — 2 px na tela, por quadro, que
+    # a rolagem soma e o registro de balões herda. Num tamanho par que já é ótimo a
+    # medida é exata, então o quadro é cortado até um.
+    height, width = gray.shape
+    return gray[: _even_dft_size(height), : _even_dft_size(width)].astype(np.float64)
+
+
+def _even_dft_size(n: int) -> int:
+    """O maior tamanho até `n` que é par e que a DFT do OpenCV usa sem completar."""
+    while n > 2 and (n % 2 or cv2.getOptimalDFTSize(n) != n):
+        n -= 1
+    return n
 
 
 @dataclass(frozen=True)
