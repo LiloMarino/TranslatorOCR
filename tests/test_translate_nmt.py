@@ -89,7 +89,7 @@ def test_pares_suportados(source, target):
 
 @pytest.mark.parametrize("source,target", [("ja", "pt"), ("en", "es"), ("fr", "de")])
 def test_par_nao_suportado_devolve_none_sem_chamar_o_modelo(source, target):
-    """Devolver None é o que faz a cadeia cair para a nuvem em vez de traduzir errado."""
+    """Par que o modelo não cobre volta sem tradução, em vez de traduzido errado."""
     tr = make()
     assert tr.translate(["hello", "world"], source, target) == [None, None]
     assert tr._translator.batches == []
@@ -183,7 +183,7 @@ def test_balao_com_dois_periodos_vira_duas_frases_no_mesmo_lote():
 
 
 def test_frase_sem_traducao_invalida_o_balao_inteiro():
-    """Meia tradução com cara de completa é pior que deixar a nuvem tentar."""
+    """Meia tradução com cara de completa é pior que nenhuma: o balão volta sem tradução."""
     tr = make()
     tr._translator._outputs = [["▁Sim."], [], ["▁Ei."]]
     assert tr.translate(["OK. WHY?", "HEY."], "en", "pt") == [None, "Ei."]

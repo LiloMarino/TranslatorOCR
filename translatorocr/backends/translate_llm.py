@@ -1,13 +1,10 @@
-"""Tier de refino por LLM local — segunda passada de refino após NMT/nuvem.
+"""Refino por LLM local — segunda passada depois do NMT.
 
-Diferente de `NMTTranslator`/`CloudTranslator`, isto **não** entra na
-`ChainTranslator`: o contrato dela é "só recebe o que o tier anterior não conseguiu
-(`None`)", mas NMT/nuvem quase sempre têm sucesso mesmo em blocos que o gate marcou
-`needs_review` — o problema ali não é falta de tradução, é OCR duvidoso entrando cru
-na tradução. Por isso o LLM é uma **segunda passada de refino**, chamada só por
-`Pipeline.refine`, só nos blocos `needs_review`, depois que a tradução rápida
-(nmt/cloud) já foi desenhada na tela. NMT pinta na hora, o LLM corrige e atualiza
-a caixa no lugar.
+O NMT quase sempre devolve tradução, mesmo nos blocos que o gate marcou
+`needs_review`: o problema ali não é falta de tradução, é OCR duvidoso entrando cru
+nela. Por isso o LLM é uma **segunda passada de refino**, chamada só por
+`Pipeline.refine`, só nos blocos `needs_review`, depois que a tradução rápida já foi
+desenhada na tela. NMT pinta na hora, o LLM corrige e atualiza a caixa no lugar.
 
 Modelo e `n_gpu_layers` calibrados com base em benchmark (`scripts/benchmark_llm.py`) —
 ver notas em `config.LLMConfig`.
@@ -82,7 +79,7 @@ class LLMTranslator:
             verbose=False,
         )
         # Contexto rolante vive na instância — mesmo padrão de "modelo carregado uma
-        # vez, estado entre chamadas na própria instância" de NMTTranslator/CloudTranslator.
+        # vez, estado entre chamadas na própria instância" de NMTTranslator.
         self._context: deque[str] = deque(maxlen=cfg.context_window)
         self._glossary = self._load_glossary(cfg.glossary_path)
         log.info(

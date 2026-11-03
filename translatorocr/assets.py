@@ -208,7 +208,7 @@ def ensure(
     """Baixa o que faltar dos grupos pedidos; devolve os grupos que falharam.
 
     Não levanta: um grupo que não veio (sem rede) é tratado mais adiante pelo
-    `registry`, que já sabe seguir sem o detector ou cair para a nuvem, com aviso.
+    `registry`, que segue sem o detector com aviso, ou para sem o tradutor.
     """
     failed: list[str] = []
     for group, asset in missing(groups):

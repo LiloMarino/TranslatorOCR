@@ -1,7 +1,6 @@
-"""Benchmark de tradutores locais/nuvem sobre imagens reais de webtoon.
+"""Benchmark de tradutores locais sobre imagens reais de webtoon.
 
     uv run scripts/benchmark_llm.py --candidate nmt
-    uv run scripts/benchmark_llm.py --candidate cloud
     uv run scripts/benchmark_llm.py --candidate llm --model-path models/qwen3-4b-q4.gguf
     uv run scripts/benchmark_llm.py --candidate llm --model-path ... --n-gpu-layers 20
 
@@ -158,20 +157,6 @@ class NMTCandidate:
         return self._translator.translate([text], "en", "pt")[0]
 
 
-class CloudCandidate:
-    name = "cloud"
-
-    def __init__(self, config) -> None:
-        from translatorocr.backends.cache import TranslationCache
-        from translatorocr.backends.translate_cloud import CloudTranslator
-
-        cache = TranslationCache(":memory:")
-        self._translator = CloudTranslator(config.translation, cache)
-
-    def translate_one(self, text: str, context: list[str]) -> str | None:
-        return self._translator.translate([text], "en", "pt")[0]
-
-
 def _strip_think(text: str) -> str:
     """Remove o bloco `<think>...</think>` do Qwen3 (vazio, com `/no_think`).
 
@@ -322,7 +307,7 @@ def _print_report(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="benchmark_llm", description=__doc__)
-    parser.add_argument("--candidate", required=True, choices=["nmt", "cloud", "llm"])
+    parser.add_argument("--candidate", required=True, choices=["nmt", "llm"])
     parser.add_argument(
         "--data", default=str(ROOT / "dataset" / "Action"), help="pasta <id>/<id>.jpg"
     )
@@ -352,8 +337,6 @@ def main(argv: list[str] | None = None) -> int:
     with VramSampler() as vram:
         if args.candidate == "nmt":
             candidate = NMTCandidate(config)
-        elif args.candidate == "cloud":
-            candidate = CloudCandidate(config)
         else:
             glossary = _load_glossary(args.glossary)
             candidate = LLMCandidate(args.model_path, args.n_gpu_layers, args.n_ctx, glossary)

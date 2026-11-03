@@ -94,8 +94,8 @@ class PipelineWorker(QObject):
 
         failed = assets.ensure(groups, on_start, on_progress)
         if failed:
-            # Sem rede: o registry segue sem o que faltou (sem detector, ou tradução
-            # pela nuvem) e avisa no log — não é motivo para não abrir.
+            # Sem rede: o registry segue sem o detector e avisa no log. Sem o tradutor
+            # ele levanta, e a falha chega ao usuário pelo `failed`.
             names = ", ".join(assets.LABELS[g] for g in failed)
             self.loading_progress.emit(f"Não foi possível baixar: {names}. Seguindo sem.")
 

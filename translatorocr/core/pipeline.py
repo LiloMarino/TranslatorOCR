@@ -122,9 +122,8 @@ class Pipeline:
         for block in blocks:
             block.bbox = shot.to_desktop(block.bbox)
 
-        # O portão fica aqui, e não depois da tradução, porque descartar antes evita
-        # pagar rede por reconhecimento falho — traduzir falsos positivos poderia
-        # produzir output corrompido ou inútil.
+        # O portão fica aqui, e não depois da tradução: o que ele descarta não chega a
+        # gastar tradução, e falso positivo traduzido só produz lixo na tela.
         detected = len(blocks)
         blocks = apply_gate(blocks, self._cfg.gate, self._cfg.ocr.lang)
 
@@ -170,7 +169,7 @@ class Pipeline:
     def refine(self, blocks: list[TextBlock]) -> list[TextBlock]:
         """Segunda passada: corrige OCR + traduz de novo só os blocos duvidosos.
 
-        Chamado à parte de `run()`, depois que a tradução rápida (nmt/cloud) já foi
+        Chamado à parte de `run()`, depois que a tradução rápida (NMT) já foi
         mostrada — fica fora do caminho crítico de latência. Devolve só os blocos que
         de fato mudaram, para o chamador atualizar o overlay in-place sem tocar no
         resto.

@@ -191,30 +191,13 @@ class TranslationConfig:
     source_lang: str = "auto"
     target_lang: str = "pt"
     cache_path: str = str(ROOT / "cache.sqlite")
-    max_retries: int = 3
-    backoff_base: float = 0.4
-    timeout: float = 10.0
-    # Tradução é I/O de rede, então paralelizar tem ganho quase linear. Medido: uma
-    # tela cheia com 82 blocos levava 64s em série, 11s com 8 workers. Mas 8 já
-    # provocou rate limit numa tela com 55 blocos, e 4 numa rajada de 40: a rajada importa
-    # mais que o volume para este endpoint. O registro de balões deixa poucos blocos novos
-    # por parada, então 2 workers bastam.
-    max_workers: int = 2
-    # Quanto a nuvem fica sem receber nada depois de rate limit ou queda de rede. Cada
-    # tentativa enquanto o bloqueio dura atrasa a rodada e pode prolongá-lo.
-    cloud_pause_s: float = 300.0
-    # Ordem dos tiers. Cada um só recebe o que o anterior não conseguiu traduzir, o que
-    # reusa a semântica de falha-por-item que TranslatorBackend já contratualiza. A
-    # nuvem vem primeiro porque traduz a fala inteira; o NMT local (sem rede, sem cota,
-    # 0.8s para 50 balões) responde por tudo que ela não devolve: sem rede, rate limit.
-    tiers: list[str] = field(default_factory=lambda: ["cloud", "nmt"])
     # CPU de propósito: o ctranslate2 carrega `cublas64_12.dll` por nome e este venv tem
     # CUDA 13 (veio do onnxruntime-gpu). Ligar a GPU aqui exigiria o wheel
     # nvidia-cublas-cu12 de ~553 MB mais um os.add_dll_directory manual, para disputar
     # VRAM com o OCR. Em CPU a tradução ainda roda em paralelo com a inferência de GPU.
     nmt_compute_type: str = "int8"
     # Medido nesta máquina com 50 balões: beam 1 = 0.55s, beam 2 = 0.82s, beam 4 =
-    # 1.27s (int8). Contra os 11.4s da nuvem, beam 2 sai de graça e traduz melhor.
+    # 1.27s (int8). Beam 2 traduz melhor por pouco mais de tempo.
     nmt_beam_size: int = 2
     nmt_threads: int = 0  # 0 deixa o ctranslate2 decidir
 

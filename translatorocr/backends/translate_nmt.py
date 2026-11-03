@@ -1,7 +1,6 @@
 """Tradução NMT local — opus-mt en→pt em CTranslate2.
 
-É o tier 1 de tradução local: sem rede, sem cota, sem rate limit. A nuvem funciona bem
-a ritmo humano, mas depende de conexão e pode falhar sob rajada.
+É o tradutor do app: local, sem rede, sem cota, sem rate limit.
 
 Roda em **CPU** por decisão, não por limitação de esforço: o `ctranslate2.dll` carrega
 `cublas64_12.dll` por nome e este venv tem CUDA 13 (veio do `onnxruntime-gpu`). Ligar a

@@ -1,6 +1,6 @@
 """Memória de tradução em SQLite.
 
-Consultado antes de qualquer chamada de rede. Garante que fala repetida sai
+Consultado antes de qualquer tradução. Garante que fala repetida sai
 instantânea e que o mesmo texto sempre traduz igual.
 """
 
@@ -39,8 +39,8 @@ def normalize(text: str) -> str:
 
 
 def make_key(text: str, source: str, target: str, backend: str) -> str:
-    # O backend entra na chave: cada tier tem as próprias entradas, então o que a reserva
-    # traduziu enquanto a nuvem estava fora não impede a nuvem de traduzir quando voltar.
+    # O backend entra na chave: cada tradutor tem as próprias entradas, então a tradução
+    # de um nunca é servida como se fosse do outro.
     payload = f"{_KEY_VERSION}\x1f{backend}\x1f{source}\x1f{target}\x1f{normalize(text)}"
     return hashlib.sha1(payload.encode()).hexdigest()
 

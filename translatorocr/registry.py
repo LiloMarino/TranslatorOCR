@@ -53,48 +53,22 @@ def build_ocr(config: Config) -> OCRBackend:
     return CompositeOCR(detector, recognizer, config.detector)
 
 
-def _build_tier(name: str, config: Config, cache: TranslationCache) -> TranslatorBackend:
-    if name == "cloud":
-        from .backends.translate_cloud import CloudTranslator
-
-        return CloudTranslator(config.translation, cache)
-    if name == "nmt":
-        from .backends.translate_nmt import NMTTranslator
-
-        return NMTTranslator(config.translation, cache)
-    raise ValueError(f"Tier de tradução desconhecido: {name!r}")
-
-
 def build_translator(config: Config) -> TranslatorBackend:
+    from .backends.translate_nmt import NMTTranslator
+
     cache = TranslationCache(config.translation.cache_path)
-    names = config.translation.tiers
-
-    tiers: list[TranslatorBackend] = []
-    for name in names:
-        try:
-            tiers.append(_build_tier(name.lower(), config, cache))
-        except FileNotFoundError as exc:
-            # Modelo não baixado. Pular é aceitável **se sobrar outro tier** — mas em
-            # WARNING e dizendo o que fazer, porque tradução silenciosamente pior é
-            # exatamente o modo de falha que este projeto já pagou duas vezes.
-            log.warning("Tier de tradução %r indisponível: %s", name, exc)
-
-    if not tiers:
+    try:
+        return NMTTranslator(config.translation, cache)
+    except FileNotFoundError as exc:
         raise RuntimeError(
-            f"Nenhum tier de tradução pôde ser construído (pedidos: {names}). "
+            f"Tradutor offline indisponível: {exc}. "
             "Verifique a conexão e reinicie, ou rode `uv run scripts/fetch_models.py`."
-        )
-    if len(tiers) == 1:
-        return tiers[0]
-
-    from .backends.chain import ChainTranslator
-
-    return ChainTranslator(tiers)
+        ) from exc
 
 
 def build_llm(config: Config) -> LLMBackend | None:
-    """`None` quando desligado ou o modelo não foi baixado — mesmo padrão de
-    warning-e-segue-sem que `build_translator` já usa pros tiers de tradução."""
+    """`None` quando desligado ou o modelo não foi baixado: o app segue só com o NMT,
+    com um warning dizendo o que fazer."""
     if not config.llm.enabled:
         return None
 

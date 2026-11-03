@@ -5,7 +5,6 @@ description = "Tradutor de tela ao vivo: OCR + tradução desenhada em overlay n
 requires-python = ">=3.13"
 dependencies = [
     "ctranslate2>=4.8.2",
-    "deep-translator>=1.11.4",
     "dxcam>=0.3.0",
     "mss>=10.2.0",
     "numpy>=2.5.2",
@@ -69,7 +68,7 @@ select = [
 [tool.pyright]
 include = ["translatorocr", "tests"]
 pythonVersion = "3.13"
-# "standard" e não "strict": as libs do projeto (rapidocr, mss, deep-translator)
+# "standard" e não "strict": as libs do projeto (rapidocr, mss, ctranslate2)
 # não têm stubs, e no modo strict o ruído de "tipo desconhecido" vindo delas
 # afogaria os erros reais do nosso código.
 typeCheckingMode = "standard"
