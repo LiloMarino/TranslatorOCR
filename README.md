@@ -21,16 +21,16 @@ Ao abrir, o console mostra só isto:
 TranslatorOCR — tradutor de mangá, inglês → português
   Pronto em 5.3s
 
-  Alt+1  ligar/desligar a tradução — ela acompanha a rolagem e o que entra é traduzido sozinho quando você para
-  Alt+2  ocultar/mostrar a tradução para conferir o original
-  Alt+3  selecionar área — clique e arraste; um clique sem arrastar volta à tela cheia
+  F8  ligar/desligar a tradução — ela acompanha a rolagem e o que entra é traduzido sozinho quando você para
+  F9  ocultar/mostrar a tradução para conferir o original
+  F4  selecionar área — clique e arraste; um clique sem arrastar volta à tela cheia
 
   O resto, inclusive sair, fica no ícone perto do relógio.
 
   7 balões · 0.7s
 ```
 
-O ícone na bandeja tem os mesmos comandos (o clique simples liga e desliga a tradução), mais **Traduzir uma vez**, **Sair**, **Monitor** (em qual tela capturar) e **Detalhes no console** (os logs internos, que ficam escondidos por padrão; `-v` liga desde o início). A captura padrão é a tela inteira sem a barra de tarefas. Quando aparece texto que não é do mangá (título de janela, interface do site), `Alt+3` restringe a captura à área da página. A borda da área aparece por 3 segundos ao selecionar e ao ligar a tradução, e a área fica guardada para a próxima vez que o app abrir.
+O ícone na bandeja tem os mesmos comandos (o clique simples liga e desliga a tradução), mais **Traduzir uma vez**, **Sair**, **Monitor** (em qual tela capturar) e **Detalhes no console** (os logs internos, que ficam escondidos por padrão; `-v` liga desde o início). A captura padrão é a tela inteira sem a barra de tarefas. Quando aparece texto que não é do mangá (título de janela, interface do site), `F4` restringe a captura à área da página. A borda da área aparece por 3 segundos ao selecionar e ao ligar a tradução, e a área fica guardada para a próxima vez que o app abrir.
 
 Balão com borda âmbar é leitura duvidosa: confiança baixa, glifo estranho removido, ou balão cortado pela borda da captura.
 
@@ -65,7 +65,7 @@ Duas ferramentas com papéis diferentes.
 uv run python -m translatorocr --image eval/pages/page01.webp
 ```
 
-Abre a página numa janela e roda o pipeline direto sobre o arquivo — sem screenshot. A roda do mouse rola a página, então o `Alt+1` também fica testável assim. Como a tela não entra na conta, dá para usar a máquina normalmente enquanto isso, e nenhuma janela que passe na frente estraga o resultado.
+Abre a página numa janela e roda o pipeline direto sobre o arquivo — sem screenshot. A roda do mouse rola a página, então o `F8` também fica testável assim. Como a tela não entra na conta, dá para usar a máquina normalmente enquanto isso, e nenhuma janela que passe na frente estraga o resultado.
 
 **Ver o que a captura enxergou:**
 
@@ -240,7 +240,7 @@ Os modelos são carregados **uma vez** no ciclo de vida do processo, e o pipelin
 
 **Freeze por hotkey** (v1) — aperta a tecla, o frame congela, o pipeline roda uma vez e as caixas ficam desenhadas até a próxima hotkey. Simples e robusto.
 
-**Modo leitura** (`Alt+1`) — captura contínua a ~16 fps sobre a região; a cada quadro mede o deslocamento vertical por correlação de fase e translada as caixas já desenhadas, em vez de reconhecer de novo. Balão já traduzido acompanha o texto e não é retraduzido enquanto se rola; quando a rolagem para, o pipeline roda uma vez e traz o que entrou. Um balão que estava cortado pela borda é relido inteiro quando aparece todo, e a leitura completa substitui a meia tradução.
+**Modo leitura** (`F8`) — captura contínua a ~16 fps sobre a região; a cada quadro mede o deslocamento vertical por correlação de fase e translada as caixas já desenhadas, em vez de reconhecer de novo. Balão já traduzido acompanha o texto e não é retraduzido enquanto se rola; quando a rolagem para, o pipeline roda uma vez e traz o que entrou. Um balão que estava cortado pela borda é relido inteiro quando aparece todo, e a leitura completa substitui a meia tradução.
 
 **Registro de balões** — o que já foi lido fica guardado com a posição na tira (y da tela menos a rolagem acumulada), mesmo depois de sair da tela. Cada leitura nova é casada com o registro por posição, não por texto: balão já traduzido e lido inteiro mantém o texto e a tradução da primeira leitura, ainda que o OCR leia diferente dessa vez, e só o que o registro não conhece vai para o tradutor. Rolar de volta redesenha os balões conhecidos na hora, sem OCR. A posição só vale enquanto o rastreio acompanha a rolagem; quando ele se perde, o trecho seguinte reancora no antigo se reconhecer o mesmo texto, ou abre um novo. O registro recomeça quando o título da janela em primeiro plano muda (outro capítulo) ou passam 10 minutos sem leitura. Ele também entrega os últimos balões em ordem de leitura, que serão o contexto de tradução (nenhum tier o consome ainda). A lógica está em [core/ledger.py](translatorocr/core/ledger.py).
 

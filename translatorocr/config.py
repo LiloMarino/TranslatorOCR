@@ -268,15 +268,16 @@ class OverlayConfig:
 
 @dataclass
 class HotkeyConfig:
-    # Nomes resolvidos em ui/hotkey.py. `RegisterHotKey` consome a tecla no sistema inteiro:
-    # o modificador é o que mantém as teclas de função livres para o navegador em foco.
+    # Nomes resolvidos em ui/hotkey.py. `RegisterHotKey` consome a tecla no sistema inteiro,
+    # então as três são teclas de função que Firefox e Chrome deixam sem uso. Tecla solta,
+    # sem modificador: o Alt soltado sozinho chega ao navegador e abre a barra de menu.
     # Liga/desliga a tradução, que acompanha a rolagem (ver `ScrollConfig`).
-    reading: str = "Alt+1"
+    reading: str = "F8"
     # Oculta/mostra a tradução para conferir o original. Precisa de tecla porque a janela
     # é transparente a input e nunca recebe um Esc por conta própria.
-    hide_translation: str = "Alt+2"
+    hide_translation: str = "F9"
     # Todo backend de captura já aceita região opcional (mss/dxcam).
-    select_area: str = "Alt+3"
+    select_area: str = "F4"
 
 
 @dataclass
