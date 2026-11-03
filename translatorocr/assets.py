@@ -105,7 +105,35 @@ TRANSLATEGEMMA = [
     ),
 ]
 
-GROUPS = {"detector": DETECTOR, "nmt": NMT, "llm": LLM, "translategemma": TRANSLATEGEMMA}
+# Os dois leitores que montam o gabarito de OCR (`scripts/label_captures.py`), fora do
+# download automático. Ambos Apache-2.0. Aprenderam de fontes diferentes, e é isso que
+# faz uma concordância entre eles valer como gabarito: o Baberu, treinado em balão de
+# mangá, copiou o inglês do PaddleOCR-VL; o Qwen2.5-VL é de outra família.
+BABERU = [
+    Asset("genshiai-daichi/baberu-ocr", f, f"baberu-ocr/{f}", size)
+    for f, size in [
+        ("onnx/vision_fp16.onnx", 172_917_304),
+        ("onnx/decoder_prefill_int8.onnx", 35_133_596),
+        ("onnx/decoder_step_int8.onnx", 34_715_466),
+        ("tokenizer/vocab.json", 130_761),
+    ]
+]
+QWEN_VL = [
+    Asset("ggml-org/Qwen2.5-VL-3B-Instruct-GGUF", f, f, size)
+    for f, size in [
+        ("Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf", 1_929_901_056),
+        ("mmproj-Qwen2.5-VL-3B-Instruct-f16.gguf", 1_338_428_128),
+    ]
+]
+
+GROUPS = {
+    "detector": DETECTOR,
+    "nmt": NMT,
+    "llm": LLM,
+    "translategemma": TRANSLATEGEMMA,
+    "baberu": BABERU,
+    "qwen-vl": QWEN_VL,
+}
 
 # O que cada backend abre. Derivado das listas acima para as duas não divergirem.
 DETECTOR_PATH = DETECTOR[0].path
@@ -119,6 +147,8 @@ LABELS = {
     "nmt": "tradutor offline",
     "llm": "LLM local",
     "translategemma": "TranslateGemma",
+    "baberu": "Baberu OCR",
+    "qwen-vl": "Qwen2.5-VL",
 }
 
 # (feito, total, bytes/s) — chamado a cada pedaço baixado.

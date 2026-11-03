@@ -42,6 +42,8 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from textmatch import cer
+
 from translatorocr.backends._ort import preload_cuda_dlls
 from translatorocr.backends.capture_still import StillCapture
 from translatorocr.config import Config
@@ -72,25 +74,6 @@ TOP_BAR = 100
 # navegador ampliando é caso real: a página tem 870 px de largura e uma coluna larga
 # a estica.
 VIEWS = [(s, top) for s in (1.3, 1.0, 0.8, 0.65, 0.5) for top in (0.0, 0.55)]
-
-
-def normalize(text: str) -> str:
-    """Só letras, dígitos e espaço: o que se mede é a leitura das palavras, e ".."
-    contra "..." ou apóstrofo reto contra curvo não mudam a tradução."""
-    kept = "".join(ch if ch.isalnum() or ch.isspace() else " " for ch in text.upper())
-    return " ".join(kept.split())
-
-
-def cer(a: str, b: str) -> float:
-    """Distância de edição de caracteres, normalizada pelo tamanho da referência."""
-    a, b = normalize(a), normalize(b)
-    prev = list(range(len(b) + 1))
-    for i, ca in enumerate(a, 1):
-        cur = [i]
-        for j, cb in enumerate(b, 1):
-            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
-        prev = cur
-    return prev[-1] / max(1, len(b))
 
 
 WHOLE, CLIPPED, OFFSCREEN = "inteiro", "cortado", "fora"
