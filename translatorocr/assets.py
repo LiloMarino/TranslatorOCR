@@ -93,15 +93,33 @@ LLM = [
     ),
 ]
 
-GROUPS = {"detector": DETECTOR, "nmt": NMT, "llm": LLM}
+# Tradutor por LLM em avaliação (`scripts/eval_translation.py`), fora do download
+# automático. Licença Gemma. O repo original do Google exige aceitar os termos; este
+# mirror do GGUF não, e traz o mesmo chat template.
+TRANSLATEGEMMA = [
+    Asset(
+        repo="bullerwins/translategemma-4b-it-GGUF",
+        remote="translategemma-4b-it-Q4_K_M.gguf",
+        local="translategemma-4b-it-Q4_K_M.gguf",
+        size=2_489_909_312,
+    ),
+]
+
+GROUPS = {"detector": DETECTOR, "nmt": NMT, "llm": LLM, "translategemma": TRANSLATEGEMMA}
 
 # O que cada backend abre. Derivado das listas acima para as duas não divergirem.
 DETECTOR_PATH = DETECTOR[0].path
 NMT_DIR = NMT[0].path.parent
 LLM_PATH = LLM[0].path
+TRANSLATEGEMMA_PATH = TRANSLATEGEMMA[0].path
 
 # Nome legível de cada grupo, para o progresso na primeira execução.
-LABELS = {"detector": "detector de balão", "nmt": "tradutor offline", "llm": "LLM local"}
+LABELS = {
+    "detector": "detector de balão",
+    "nmt": "tradutor offline",
+    "llm": "LLM local",
+    "translategemma": "TranslateGemma",
+}
 
 # (feito, total, bytes/s) — chamado a cada pedaço baixado.
 Progress = Callable[[int, int, float], None]

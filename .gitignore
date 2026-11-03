@@ -189,3 +189,4 @@ CLAUDE.md
 # Páginas de mangá de terceiros usadas pelo scripts/eval_pages.py: ficam só na máquina.
 eval/pages/
 eval/captures/
+eval/translation/
