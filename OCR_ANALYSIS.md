@@ -4,7 +4,7 @@
 >
 > **Legenda:** `A#` achado de leitura de código/medição · `P#` problema relatado · `I#` ideia pesada como candidata · `S#` síntese causal.
 >
-> **Última mudança (2026-11-02):** o modo de leitura (I3) ganhou o teto de salto contra a ambiguidade cíclica da correlação e deixou de vazar objetos GDI; o registro de balões (I13) passou a tirar o balão que duas leituras seguidas não acham, e a tela depois de cada leitura sai dele.
+> **Última mudança (2026-11-03):** a tradução ficou 100% local (I9 descartada) e o TranslateGemma entrou como segunda passada com contexto (I10); o gabarito das capturas ficou pronto (I6), e a lentidão da segunda passada virou A21, com a recompilação para a GPU sem tensor cores como experimento (I15).
 
 ## Contexto e escopo
 
@@ -76,25 +76,29 @@ Na junção do que sobreviveu à rolagem com o que acabou de ser lido, a leitura
 `core/tracker.py:shift_blocks`. Ao rolar, a caixa que deixa a viewport é removida da lista e some do app. Rolar de volta obriga a ler e traduzir tudo de novo, e nenhum tradutor tem como saber quais foram as falas anteriores da página.
 ✅ **Resolvido via I13 — o registro guarda os balões que saíram da tela e os redesenha ao rolar de volta.**
 
-**A15 — O contexto de tradução só existe no tier LLM, e na ordem de chegada**
-`backends/translate_nmt.py`, `translate_cloud.py`, `translate_llm.py`. O NMT traduz frase por frase e a nuvem traduz um texto por chamada: nenhum dos dois vê a fala vizinha. O tier LLM tem `context_window`, mas guarda as últimas traduções na ordem em que chegaram ao tradutor, não na ordem de leitura da página.
-⚠️ **Confirmado. Expressão idiomática e fala que continua a anterior saem traduzidas palavra por palavra.**
+**A15 — O contexto de tradução só existia no tier LLM, e na ordem de chegada**
+`backends/translate_nmt.py`. O opus-mt traduz frase por frase e não vê a fala vizinha. O tier LLM que existia guardava as últimas traduções na ordem em que chegavam ao tradutor, não na ordem de leitura da página.
+✅ **Resolvido via I10 — o TranslateGemma recebe os balões anteriores do registro (I13), na ordem de leitura. O opus-mt segue sem contexto, como primeira versão que aparece na hora.**
 
-**A16 — A ordem padrão dos tiers põe o tradutor mais literal na frente**
-`config.py:TranslationConfig.tiers`. O default era `["nmt", "cloud"]`, escolhido pela latência (0.8 s para 50 blocos contra 11.4 s). A nuvem só recebia o que o NMT não traduzia, então na prática nunca era usada.
-✅ **Resolvido via I9 — o default passou a `["cloud", "nmt"]`.**
+**A16 — A ordem padrão dos tiers punha o tradutor mais literal na frente**
+`config.py:TranslationConfig`. O opus-mt era o tradutor que de fato respondia: a nuvem atrás dele nunca era usada, e na frente dele foi bloqueada (ver I9).
+✅ **Resolvido via I10 — o opus-mt continua aparecendo primeiro, pela latência, e o TranslateGemma substitui a tradução na mesma caixa quando termina.**
 
 **A19 — Com a nuvem na frente, cada rodada pagava os retries antes de cair no NMT**
-`backends/translate_cloud.py`, `backends/cache.py`. O endpoint gratuito bloqueia por rate limit: depois de uma rajada de 40 blocos, até chamadas sequenciais de 1 por segundo voltaram 429. Cada rodada tentava de novo, esgotava as 3 tentativas com backoff e só então entregava ao NMT (12.4 s para 5 blocos, 45.6 s para 25). O que o NMT traduzia nesse intervalo ficava no cache sob a mesma chave, e a nuvem não refazia quando voltava.
-✅ **Resolvido via I9 — 429 e queda de rede pausam a nuvem por 5 min, sem retry, e o cache separa as entradas por tier. Com o IP bloqueado de verdade: 1.8 s na rodada que descobre o bloqueio, depois 0.18 s para 5 blocos e 0.71 s para 25. A duração de um bloqueio segue sem medição.**
+O endpoint gratuito do Google bloqueava por rate limit, e cada rodada esgotava as tentativas com backoff antes de entregar ao NMT (12.4 s para 5 blocos).
+✅ **Encerrado: o código da nuvem foi removido junto com o descarte de I9.**
 
-**A20 — A nuvem não tem timeout de rede**
-`config.py:TranslationConfig.timeout` não é lido por ninguém, e o `GoogleTranslator` do `deep-translator` chama `requests.get` sem timeout. Uma rede que trava sem derrubar a conexão segura a leitura, que hoje depende da nuvem responder. A pausa de A19 só cobre as falhas que chegam a levantar exceção.
-⚠️ **Confirmado por leitura de código, não observado em uso.**
+**A20 — A nuvem não tinha timeout de rede**
+`TranslationConfig.timeout` não era lido, e o cliente chamava `requests.get` sem timeout.
+✅ **Encerrado: o código da nuvem foi removido junto com o descarte de I9.**
+
+**A21 — A segunda passada é dezenas de vezes mais lenta que o opus-mt, numa fila que só anda em ordem de chegada**
+`backends/translate_gemma.py`, `core/pipeline.py` (fila de refino). Medido: 2.6 s por balão no A/B, 33.5 s para 19 balões no `benchmark_llm.py` (~1.8 s cada) e 0.4 a 0.7 s por balão no app, contra 0.13 s do opus-mt. A fila é FIFO e processa um balão por volta do laço do worker: rolando rápido, ela ainda refina balões que já saíram da tela enquanto os novos esperam. Ao carregar, o llama.cpp avisa que a GTX 1660 SUPER não tem tensor cores e que o caminho de kernel compilado é o subótimo; o build já é CUDA (`llama_supports_gpu_offload()` verdadeiro, llama-cpp-python 0.3.35).
+⚠️ **Confirmado pela medição. O atraso aparece só ao rolar rápido; parado, a fila esvazia em segundos.**
 
 **A17 — Seis comandos em teclas de função globais, uma por comando**
 `config.py:HotkeyConfig`, `__main__.py` (lista `commands`). Seis teclas de função registradas com `RegisterHotKey`, que consome a tecla no sistema inteiro: o navegador com a página em foco perdia a barra de endereço e a tela cheia.
-✅ **Resolvido via I11 — três teclas com Alt; as teclas de função voltaram ao navegador.**
+✅ **Resolvido via I11 — três teclas, F8, F9 e F4, que o navegador não usa para nada que a leitura precise.**
 
 **A18 — A área selecionada vive só na memória do processo**
 `__main__.py:App._selected_region`. Ao fechar o app, a área escolhida com a seleção se perdia e a próxima sessão começava na tela cheia.
@@ -145,7 +149,7 @@ Endossada. Implementada — ver ROADMAP.
 
 **I6. Gabarito por dois professores** *(origem: própria)*
 Em vez de rotular à mão, dois modelos lentos e de famílias diferentes leem cada balão das capturas; onde concordam vira gabarito, onde discordam o usuário escolhe num clique. Roda uma vez, sem pressa.
-Endossada. Pendente — ver ROADMAP.
+Endossada. Implementada — ver ROADMAP.
 
 **I7. OCR com o modelo `server`** *(origem: própria)*
 Trocar o par de modelos do RapidOCR pelo maior, só mudando a configuração, e medir contra o gabarito.
@@ -157,14 +161,14 @@ Endossada como experimento. Em avaliação — ver ROADMAP.
 
 **I9. Google gratuito como tradutor principal** *(origem: própria)*
 Inverter a ordem dos tiers para `["cloud", "nmt"]`: a nuvem traduz e o opus-mt fica de reserva offline.
-Endossada. Implementada junto com o tratamento de A19 — ver ROADMAP.
+Endossada e implementada, depois **descartada**: o IP foi bloqueado já no primeiro pedido, e o uso que o usuário quer é ilimitado. O código da nuvem saiu e a tradução ficou 100% local — ver ROADMAP.
 
 **I10. TranslateGemma 4B como tradutor offline com contexto** *(origem: própria)*
-Um modelo de tradução local que recebe como contexto os últimos balões em ordem de leitura. Só entra como tier se ganhar ou empatar com o Google num teste às cegas sobre balões reais.
-Endossada como candidata, condicionada ao teste.
+Um modelo de tradução local que recebe como contexto os últimos balões em ordem de leitura. Com a nuvem descartada, o teste às cegas passou a ser contra o opus-mt, e o modelo entrou como segunda passada: o opus-mt aparece na hora e o TranslateGemma substitui quando termina.
+Endossada. Implementada — ver ROADMAP.
 
-**I11. Três teclas juntas: Alt+1, Alt+2, Alt+3** *(origem: própria)*
-Alt+1 liga e desliga a tradução (o modo leitura vira o único), Alt+2 oculta e mostra, Alt+3 seleciona a área. O resto fica na bandeja.
+**I11. Três teclas juntas: F8, F9, F4** *(origem: própria)*
+F8 liga e desliga a tradução (o modo leitura vira o único), F9 oculta e mostra, F4 seleciona a área. O resto fica na bandeja. A primeira versão usava Alt+1/2/3, mas soltar o Alt abria o menu do Firefox.
 Endossada. Implementada — ver ROADMAP.
 
 **I12. Persistir a área selecionada** *(origem: própria)*
@@ -178,6 +182,10 @@ Endossada. Implementada — ver ROADMAP.
 **I14. OCR só na faixa que entrou na tela** *(origem: própria)*
 Com o registro de balões, a parte da tela que já foi lida não precisa passar de novo pelo OCR. Economiza GPU, mas um balão cortado na fronteira da faixa precisa de tratamento que ainda não foi desenhado.
 Endossada como direção; sem mecanismo fechado.
+
+**I15. Recompilar o llama-cpp-python para GPU sem tensor cores** *(origem: própria)*
+O próprio llama.cpp indica o caminho para a GTX 1660 SUPER (A21): compilar com `CMAKE_CUDA_ARCHITECTURES=61-virtual;80-virtual` e `GGML_CUDA_FORCE_MMQ`, o que usa na Turing os kernels da geração anterior, feitos para GPU sem tensor cores. Se a segunda passada ficar mais rápida, a fila de A21 esvazia antes e o contexto da tradução chega mais cedo.
+Endossada como experimento; o resultado decide — ver ROADMAP.
 
 ---
 
