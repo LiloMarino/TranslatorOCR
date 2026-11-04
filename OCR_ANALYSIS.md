@@ -36,14 +36,6 @@ Medido nas três páginas: um balão de uma palavra só não recebe caixa de lin
 `ocr_composite.py:_rank`. Ordena por (cobriu a região, menor confiança das linhas). Uma leitura do mosaico que sai confiante e errada ganha de uma primeira leitura correta — foi o que aconteceu ao mexer na geometria do mosaico: um balão que estava certo passou a sair com letra trocada. A confiança do reconhecedor não é um sinal bom o bastante para arbitrar entre duas leituras do mesmo texto.
 ⚠️ **Confirmado, sem correção proposta.**
 
-**A5 — O eval não cobrava recall nas vistas de tela**
-`scripts/eval_pages.py`. Só a página inteira cobrava "achou todos os balões"; nas vistas de tela o script apontava apenas lixo e duplicata, porque não tinha como distinguir "o OCR perdeu o balão" de "o balão está fora da viewport". Consequência: uma regressão de leitura em escala de tela passava como verde.
-✅ **Resolvido via S2 — o JSON de cada página passou a guardar a posição de cada balão, e o script cobra os que cabem inteiros na vista.**
-
-**A6 — O eval estourava com a saída redirecionada**
-`scripts/eval_pages.py` imprimia seta e acentos sem preparar o console; em cp1252 isso levanta `UnicodeEncodeError` e derruba a execução no meio.
-✅ **Resolvido via S2 — passou a chamar `ui/console.setup()`, o mesmo tratamento do app.**
-
 **A7 — Não há gate de estabilidade: o overlay desenha a primeira leitura que chegar**
 Vinha registrado como limitação no README. Para mangá parado não incomoda, mas para texto que aparece letra por letra (jogo) a leitura sai no meio da animação. Exigir N leituras iguais consecutivas só era possível com um quadro anterior para comparar — o que passou a existir com o modo de leitura.
 ⚠️ **Confirmado. Deixou de estar bloqueado; ver card no ROADMAP.**
@@ -64,49 +56,9 @@ Vinha registrado como armadilha no `CLAUDE.md`. O `ctranslate2.dll` carrega `cub
 Vinha registrado como comentário em `ocr_rapid.py`. Os pesos da geração seguinte estão no catálogo do `rapidocr` 3.9.2, mas não são alcançáveis: o enum de idioma do reconhecedor não tem o membro correspondente e a resolução de modelo rejeita a string crua. Verificado em 2026-09. Importa porque uma geração nova poderia trazer um **detector de linha** diferente, que é exatamente o estágio que falha em A2 — ao contrário de trocar de reconhecedor, que foi medido e não ajuda (I1).
 ⚠️ **Confirmado. Reavaliar quando o pacote subir de versão.**
 
-**A12 — A leitura nova substitui a antiga mesmo quando a antiga estava certa**
-Na junção do que sobreviveu à rolagem com o que acabou de ser lido, a leitura nova manda; a única exceção é o balão novo cortado pela borda diante de um antigo lido inteiro. Um balão antigo lido certo, relido agora com uma letra trocada, vira a leitura trocada, e a tradução já desenhada muda junto.
-✅ **Resolvido via I13 — o registro mantém a primeira leitura inteira de cada balão, e a tela depois de cada leitura é montada a partir dele.**
-
-**A13 — O cache de tradução só acerta com o texto idêntico**
-`backends/cache.py:make_key`. A chave é o hash do texto com espaços colapsados, e só isso. Uma leitura de OCR que difere em uma letra é um miss, e o mesmo balão é traduzido de novo (e pode sair diferente).
-✅ **Resolvido via I13 — a posição passa na frente do cache, então uma leitura com letra diferente não dispara nova tradução. A chave do cache segue sendo o texto.**
-
-**A14 — O balão que sai da tela é descartado, e nada guarda o que já foi lido**
-`core/tracker.py:shift_blocks`. Ao rolar, a caixa que deixa a viewport é removida da lista e some do app. Rolar de volta obriga a ler e traduzir tudo de novo, e nenhum tradutor tem como saber quais foram as falas anteriores da página.
-✅ **Resolvido via I13 — o registro guarda os balões que saíram da tela e os redesenha ao rolar de volta.**
-
-**A15 — O contexto de tradução só existia no tier LLM, e na ordem de chegada**
-`backends/translate_nmt.py`. O opus-mt traduz frase por frase e não vê a fala vizinha. O tier LLM que existia guardava as últimas traduções na ordem em que chegavam ao tradutor, não na ordem de leitura da página.
-✅ **Resolvido via I10 — o TranslateGemma recebe os balões anteriores do registro (I13), na ordem de leitura. O opus-mt segue sem contexto, como primeira versão que aparece na hora.**
-
-**A16 — A ordem padrão dos tiers punha o tradutor mais literal na frente**
-`config.py:TranslationConfig`. O opus-mt era o tradutor que de fato respondia: a nuvem atrás dele nunca era usada, e na frente dele foi bloqueada (ver I9).
-✅ **Resolvido via I10 — o opus-mt continua aparecendo primeiro, pela latência, e o TranslateGemma substitui a tradução na mesma caixa quando termina.**
-
-**A19 — Com a nuvem na frente, cada rodada pagava os retries antes de cair no NMT**
-O endpoint gratuito do Google bloqueava por rate limit, e cada rodada esgotava as tentativas com backoff antes de entregar ao NMT (12.4 s para 5 blocos).
-✅ **Encerrado: o código da nuvem foi removido junto com o descarte de I9.**
-
-**A20 — A nuvem não tinha timeout de rede**
-`TranslationConfig.timeout` não era lido, e o cliente chamava `requests.get` sem timeout.
-✅ **Encerrado: o código da nuvem foi removido junto com o descarte de I9.**
-
 **A21 — A segunda passada é dezenas de vezes mais lenta que o opus-mt, numa fila que só anda em ordem de chegada**
 `backends/translate_gemma.py`, `core/pipeline.py` (fila de refino). Medido: 2.6 s por balão no A/B, 33.5 s para 19 balões no `benchmark_llm.py` (~1.8 s cada) e 0.4 a 0.7 s por balão no app, contra 0.13 s do opus-mt. A fila é FIFO e processa um balão por volta do laço do worker: rolando rápido, ela ainda refina balões que já saíram da tela enquanto os novos esperam. Ao carregar, o llama.cpp avisa que a GTX 1660 SUPER não tem tensor cores e que o caminho de kernel compilado é o subótimo; o build já é CUDA (`llama_supports_gpu_offload()` verdadeiro, llama-cpp-python 0.3.35).
 ⚠️ **Confirmado pela medição. O atraso aparece só ao rolar rápido; parado, a fila esvazia em segundos.**
-
-**A22 — O classificador de ângulo do RapidOCR desvirava linha curta que estava certa**
-`backends/ocr_rapid.py:_build_params`. O RapidOCR liga por padrão um classificador que decide se cada recorte de linha está de cabeça para baixo e, se achar que está, gira 180° antes de ler. Em linha curta, ou com "?!" no começo ou no fim, ele errava o palpite: a interjeição saía como as mesmas letras de trás para frente e de ponta-cabeça, e uma palavra de duas letras virava símbolo. Era a maior fonte de erro em balão de fala. Medido com `scripts/eval_captures.py` em 199 telas: desligado, os balões foram de 192 para 210 exatos de 210 (21 regiões ganhas, nenhuma perdida) e o texto solto de 11 para 14 de 31. Nas páginas curadas (`eval_pages.py`, 3 páginas em 33 vistas), as vistas com falha foram de 8 para 0. Texto de mangá chega sempre de pé, então o classificador não tinha nada a ganhar.
-✅ **Resolvido — `Global.use_cls` desligado em `_build_params`.**
-
-**A17 — Seis comandos em teclas de função globais, uma por comando**
-`config.py:HotkeyConfig`, `__main__.py` (lista `commands`). Seis teclas de função registradas com `RegisterHotKey`, que consome a tecla no sistema inteiro: o navegador com a página em foco perdia a barra de endereço e a tela cheia.
-✅ **Resolvido via I11 — três teclas, F8, F9 e F4, que o navegador não usa para nada que a leitura precise.**
-
-**A18 — A área selecionada vive só na memória do processo**
-`__main__.py:App._selected_region`. Ao fechar o app, a área escolhida com a seleção se perdia e a próxima sessão começava na tela cheia.
-✅ **Resolvido via I12 — a área fica em `area.json` e volta ao abrir, na tela que a contém.**
 
 ---
 
@@ -131,58 +83,6 @@ O app pede seis teclas de função diferentes, longe umas das outras, e duas del
 
 ## Ideias (I#)
 
-**I1. Trocar o motor de OCR** *(origem: própria)*
-Diante de P1, a hipótese natural: o reconhecedor não é bom o bastante e vale trocar por outro. Pesada como candidata e medida contra o vizinho mais óbvio dentro do mesmo pacote.
-Endossada como hipótese, **rejeitada pela medição** — ver item no ROADMAP.
-
-**I2. Rodar o app contra uma imagem em vez da tela** *(origem: própria)*
-Poder apontar o app para uma página salva e ver leitura, tradução e caixas, sem depender do que está na tela e sem prender a máquina. Nasceu do incômodo de validar abrindo a imagem numa janela e deixando o app fotografá-la por cima — se outra janela passa na frente, o teste mente.
-Endossada. Implementada — ver ROADMAP.
-
-**I3. Acompanhar a rolagem em vez de traduzir um quadro só** *(origem: própria)*
-Como o app já captura a intervalos curtos, dá para perceber que um balão subiu e mover a caixa traduzida junto, em vez de reconhecer tudo de novo. Balões que já foram traduzidos não são retraduzidos enquanto se rola; os que entram são lidos quando a rolagem para, e um que estava cortado é relido inteiro quando aparece todo.
-Endossada. Implementada — ver ROADMAP.
-
-**I4. Capturar só a janela do navegador, em vez da tela inteira** *(origem: própria)*
-Se a captura pegasse apenas a janela alvo, o overlay do próprio app não entraria no quadro e o problema de "o app lê a própria tradução" desapareceria.
-Endossada como candidata, **rejeitada** — ver argumento no ROADMAP.
-
-**I5. Coletor de capturas** *(origem: própria)*
-Uma opção `--collect` que, a cada rodada do pipeline, grava a imagem que o OCR recebeu e as leituras e traduções do app, pulando quadros quase iguais. É o que transforma o uso real em amostra, em vez das três páginas curadas de hoje.
-Endossada. Implementada — ver ROADMAP.
-
-**I6. Gabarito por dois professores** *(origem: própria)*
-Em vez de rotular à mão, dois modelos lentos e de famílias diferentes leem cada balão das capturas; onde concordam vira gabarito, onde discordam o usuário escolhe num clique. Roda uma vez, sem pressa.
-Endossada. Implementada — ver ROADMAP.
-
-**I7. OCR com o modelo `server`** *(origem: própria)*
-Trocar o par de modelos do RapidOCR pelo maior, só mudando a configuração, e medir contra o gabarito.
-Descartada pela medição: o PP-OCRv5 só tem `server` em chinês, o reconhecedor chinês junta palavras, e o detector `server` piora o balão de fala a 2,5 vezes o custo. Números no ROADMAP.
-
-**I8. Detector de linha treinado em mangá no lugar do DBNet** *(origem: própria)*
-O `comic-text-detector` ocuparia o estágio que falha em A2, A3 e A9. Se achar os balões curtos, a segunda passada em mosaico deixa de ser necessária. A diferença para I1 é que o alvo é o detector de linha, não o reconhecedor.
-Descartada pela medição: não acha os balões de uma palavra só, que era a condição, e no melhor ajuste só empatou com o DBNet. O que ele ganhava vinha de não passar pelo classificador de ângulo, e esse ganho virou A22. Números no ROADMAP.
-
-**I9. Google gratuito como tradutor principal** *(origem: própria)*
-Inverter a ordem dos tiers para `["cloud", "nmt"]`: a nuvem traduz e o opus-mt fica de reserva offline.
-Endossada e implementada, depois **descartada**: o IP foi bloqueado já no primeiro pedido, e o uso que o usuário quer é ilimitado. O código da nuvem saiu e a tradução ficou 100% local — ver ROADMAP.
-
-**I10. TranslateGemma 4B como tradutor offline com contexto** *(origem: própria)*
-Um modelo de tradução local que recebe como contexto os últimos balões em ordem de leitura. Com a nuvem descartada, o teste às cegas passou a ser contra o opus-mt, e o modelo entrou como segunda passada: o opus-mt aparece na hora e o TranslateGemma substitui quando termina.
-Endossada. Implementada — ver ROADMAP.
-
-**I11. Três teclas juntas: F8, F9, F4** *(origem: própria)*
-F8 liga e desliga a tradução (o modo leitura vira o único), F9 oculta e mostra, F4 seleciona a área. O resto fica na bandeja. A primeira versão usava Alt+1/2/3, mas soltar o Alt abria o menu do Firefox.
-Endossada. Implementada — ver ROADMAP.
-
-**I12. Persistir a área selecionada** *(origem: própria)*
-Gravar a área num arquivo pequeno e restaurá-la ao abrir.
-Endossada. Implementada — ver ROADMAP.
-
-**I13. Registro de balões: o histórico da tira** *(origem: própria)*
-Cada balão lido ganha uma posição na tira (y na tela menos a rolagem acumulada), válida dentro de um trecho que termina quando o rastreio se perde. Balão já traduzido e lido inteiro não é retraduzido nem muda de texto; rolar de volta redesenha do registro, sem OCR; e o registro entrega os últimos balões em ordem de leitura como contexto de tradução, que só zera quando o título da janela em primeiro plano muda ou passam ~10 minutos sem leitura.
-Endossada. Implementada — ver ROADMAP.
-
 **I14. OCR só na faixa que entrou na tela** *(origem: própria)*
 Com o registro de balões, a parte da tela que já foi lida não precisa passar de novo pelo OCR. Economiza GPU, mas um balão cortado na fronteira da faixa precisa de tratamento que ainda não foi desenhado.
 Endossada como direção; sem mecanismo fechado.
@@ -194,31 +94,6 @@ Endossada como experimento; o resultado decide — ver ROADMAP.
 ---
 
 ## Síntese (S#)
-
-### S1 — O que parece erro de modelo é o estágio de detecção de linha, e a cobertura dele é instável por construção
-
-**Confiança:** alta — cada elo foi medido separadamente.
-
-Cruza A1, A2, A3, A4, P1 e I1.
-
-A queixa de P1 ("o OCR não dá conta") aponta naturalmente para o reconhecedor, e foi essa a leitura que gerou I1. A medição desfaz essa atribuição em três passos. Primeiro, o detector de balão acha a região em toda escala testada, e o reconhecedor lê o texto certo quando recebe aquele recorte (A2): nenhum dos dois é o elo fraco. Segundo, quem não produz nada é o DBNet, o detector de linha que vem dentro do RapidOCR, para balão curto. Terceiro, trocar o modelo não toca nesse estágio — medido, o vizinho imediato dentro do mesmo pacote lê **pior** (I1).
-
-A segunda passada em mosaico existe justamente para cobrir A2, e funciona em resolução nativa. O que a torna não confiável em página reduzida é A3: como todos os recortes suspeitos vão para a mesma imagem e o DBNet dimensiona pelo lado menor dela, a ampliação que cada recorte recebe depende de quem mais está no mosaico. Isso explica a característica mais incômoda de P1 — a inconsistência. Não é que um balão seja difícil; é que a leitura dele muda conforme os *outros* balões suspeitos daquele quadro. A4 fecha o ciclo: quando o mosaico devolve uma leitura confiante e errada, ela ganha da primeira leitura correta.
-
-**Correção candidata:** desacoplar a ampliação de cada recorte da geometria do mosaico, e arbitrar entre as duas leituras por algo melhor que a confiança do reconhecedor. Duas tentativas foram medidas e revertidas (igualar as larguras dos recortes; fixar a largura do mosaico em 736), e uma terceira (reconhecer cada região suspeita numa chamada isolada) recupera casos que falhavam mas devolve leitura vazia em outros. 
-
-**Desfecho:** descartada por falta do que corrigir. As falhas que sustentavam esta cadeia foram medidas com o classificador de ângulo ligado, e parte do "letra trocada" era ele (A22). Desligado, as páginas curadas foram de 8 para 0 vistas com falha e o gabarito das capturas (I6) para 210 de 210 balões exatos. O acoplamento de A3 continua no código, mas não produz falha medida em nenhuma das duas réguas. Reabre se aparecer falha atribuível ao mosaico. O mosaico em si fica: sem ele, uma vista curada passa a ter um bloco de lixo.
-
-### S2 — A instabilidade era invisível porque a medição não cobrava o caso em que ela aparece
-
-**Confiança:** alta — a lacuna foi confirmada ao fechá-la: falhas reais apareceram na primeira execução seguinte.
-
-Cruza A5, A6, P1 e P3.
-
-O eval rodava cada página inteira e em vistas de tela, mas só a página inteira cobrava recall (A5). Como a segunda passada só é confiável em resolução nativa (S1), o único regime medido de verdade era justamente aquele em que o problema **não** aparece. O resultado é que o projeto acreditava estar em 7/7 enquanto, na escala em que o usuário de fato lê, balões sumiam — e P1 não tinha como ser reproduzido por ninguém a não ser abrindo o navegador, que é exatamente o atrito de P3. A6 agravava: quando a saída era redirecionada, o script morria no meio e nem o número parcial saía.
-
-**Correção candidata:** gravar a posição de cada balão junto do texto esperado, para o script saber quais cabem inteiros em cada vista e cobrar recall em todas elas; e preparar o console como o app faz.
-Implementada.
 
 ### S3 — O gate de estabilidade deixou de estar bloqueado
 
