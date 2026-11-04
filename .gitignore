@@ -189,4 +189,5 @@ CLAUDE.md
 eval/pages/
 eval/captures/
 eval/translation/
+eval/results/
 benchmark_results.md
