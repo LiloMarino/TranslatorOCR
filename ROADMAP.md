@@ -8,7 +8,7 @@
 >
 > **Regra de sincronização:** os dois documentos usam os mesmos IDs (`A#`, `P#`, `I#`, `S#`) e devem sempre concordar sobre a decisão vigente de cada item.
 >
-> **Última mudança (2026-11-04):** Tradução 100% local (I9 descartada) com o TranslateGemma como segunda passada (I10); gabarito das capturas pronto (I6); a lentidão da segunda passada virou A21, com a recompilação para GPU sem tensor cores como experimento (I15).
+> **Última mudança (2026-11-04):** Régua eval_captures.py com a linha de base do app (I6); modelo server do RapidOCR medido e descartado (I7).
 
 ## Glossário
 
@@ -33,13 +33,12 @@
 | **A21** | A segunda passada é dezenas de vezes mais lenta que o opus-mt, numa fila FIFO; a GPU não tem tensor cores | ⚠️ |
 | [**S1**](#s1) | Desacoplar a segunda passada de OCR da geometria do mosaico | 🔍 |
 | [**S3**](#s3) | Gate de estabilidade: exigir duas leituras iguais antes de desenhar | 💤 |
-| [**I7**](#i7) | OCR com model_type = server, medido contra o gabarito | 🔍 |
 | [**I8**](#i8) | comic-text-detector no lugar do DBNet em ocr_composite.py | 🔍 |
 | [**I14**](#i14) | OCR só na faixa que entrou na tela, em vez da tela inteira | 🔍 |
 | [**I15**](#i15) | Recompilar o llama-cpp-python para GPU sem tensor cores (MMQ, arquiteturas 61/80 virtuais) | 💤 |
 
 <details>
-<summary><strong>Resolvido / descartado / informativo (25 itens — clique pra expandir)</strong></summary>
+<summary><strong>Resolvido / descartado / informativo (26 itens — clique pra expandir)</strong></summary>
 
 | ID | Resumo | Status |
 | --- | --- | --- |
@@ -63,6 +62,7 @@
 | [**I4**](#i4) | Capturar só a janela do navegador em vez da tela inteira | 🚫 |
 | [**I5**](#i5) | Coletor de capturas: --collect grava o que o OCR recebeu e o que o app leu e traduziu | ✅ |
 | [**I6**](#i6) | Gabarito por dois leitores (Baberu OCR e Qwen2.5-VL) sobre as capturas | ✅ |
+| [**I7**](#i7) | OCR com model_type = server, medido contra o gabarito | 🚫 |
 | [**I9**](#i9) | Google gratuito como tradutor principal: tiers = [cloud, nmt] | 🚫 |
 | [**I10**](#i10) | TranslateGemma 4B como segunda passada, com os balões anteriores como contexto | ✅ |
 | [**I11**](#i11) | F8 liga/desliga, F9 oculta/mostra, F4 seleciona a área | ✅ |
@@ -84,7 +84,6 @@
 | **A4** | A escolha entre primeira e segunda leitura usa a confiança do reconhecedor, que não arbitra bem | ⚠️ |
 | **A9** | Palavra curta com til decorativo sai errada em resolução nativa | ⚠️ |
 | [**S1**](#s1) | Desacoplar a segunda passada de OCR da geometria do mosaico | 🔍 |
-| [**I7**](#i7) | OCR com model_type = server, medido contra o gabarito | 🔍 |
 | [**I8**](#i8) | comic-text-detector no lugar do DBNet em ocr_composite.py | 🔍 |
 | [**I14**](#i14) | OCR só na faixa que entrou na tela, em vez da tela inteira | 🔍 |
 
@@ -173,7 +172,9 @@ Medido com OCR real numa página de `eval/pages`, em 4 paradas: 3 telas gravadas
 
 Resultado em 199 telas: 307 regiões, das quais 54 cortadas pela borda e 253 lidas. Das 253, os dois leitores concordaram em 224 (89%), 11 eram vazias, 17 foram revisadas à mão e 1 foi rejeitada. Pendentes: 0.
 
-Limite: o inglês do Baberu foi destilado do PaddleOCR-VL, então os dois leitores não são de todo independentes. O Qwen-VL é de outra família, e é ele que segura a concordância.
+A régua é `scripts/eval_captures.py`: passa cada tela pelo OCR, agrupamento e portão do app e casa os blocos com as regiões do gabarito. Por região mede achado (algum bloco caiu nela), exato (texto igual ao do gabarito depois de normalizar caixa e pontuação) e CER (fração de caracteres errados: 0.05 é um erro a cada 20 letras; região não achada conta 1.0). `--save` e `--against` comparam duas rodadas região a região. Linha de base do app (`mobile`), 241 regiões com texto (151 textos distintos, porque o mesmo balão aparece em várias telas da rolagem), 222 ms de OCR por tela: balões de fala, 209 de 210 achados, 192 de 210 exatos, CER médio 0.024; texto solto (quase sempre onomatopeia), 29 de 31 achados, 11 de 31 exatos, CER médio 0.341. Nenhum bloco caiu fora de região com texto.
+
+Limite: o inglês do Baberu foi destilado do PaddleOCR-VL, então os dois leitores não são de todo independentes. O Qwen-VL é de outra família, e é ele que segura a concordância. E as regiões vêm do detector de balão do próprio app, então balão que ele não acha não aparece na régua.
 
 <a id="i10"></a>
 **I10 — TranslateGemma 4B como segunda passada, com os balões anteriores como contexto.** Resolve P4 e ataca A15 pela raiz: o contexto vem do registro (I13), na ordem de leitura.
@@ -258,6 +259,7 @@ Custo: uma recompilação (alguns minutos) e duas medições. Volta atrás reins
 | **I1** | Trocar o motor de OCR por outro modelo | — | 🚫 Descartado |
 | **I4** | Capturar só a janela do navegador em vez da tela inteira | — | 🚫 Descartado |
 | **I9** | Google gratuito como tradutor principal: tiers = [cloud, nmt] | A16, A19 | 🚫 Descartado |
+| **I7** | OCR com model_type = server, medido contra o gabarito | A2, A9 | 🚫 Descartado |
 
 <a id="i1"></a>
 **I1 — Trocar o motor de OCR: medido e pior.** Medido contra o vizinho imediato dentro do mesmo pacote (a geracao anterior do mesmo detector+reconhecedor): nas tres paginas inteiras ele le 17/21 baloes exatos contra 19/21 do atual, perde um balao numa pagina e inventa letra em outra. Alem disso a troca nao toca no estagio que falha: o reconhecedor atual le o texto certo quando recebe o recorte da regiao (A2), e quem nao produz caixa e o detector de linha. Trocar de modelo mudaria o reconhecedor, nao o DBNet.
@@ -272,13 +274,15 @@ Reavaliar se a exclusao de captura falhar em alguma maquina: e o plano B natural
 <a id="i9"></a>
 **I9 — Descartado.** 🚫 Chegou a ser implementada, mas o endpoint gratuito do Google bloqueou o IP já no primeiro pedido (429), e o usuário quer uso ilimitado, sem depender de cota de terceiro. A nuvem não tinha como entregar isso, nem com a pausa de A19. O código da nuvem foi removido, e a tradução ficou 100% local: o opus-mt na frente e o TranslateGemma como segunda passada (I10).
 
+<a id="i7"></a>
+**I7 — Descartado.** 🚫 Medido com `scripts/eval_captures.py` em 199 telas, 210 regiões de balão de fala e 31 de texto solto, contra a linha de base `mobile` (192 de 210 balões exatos, 222 ms por tela). O PP-OCRv5 do RapidOCR só tem modelo `server` em chinês: o reconhecedor `server` em inglês não existe, e o chinês lê as letras certas mas tira o espaço entre palavras curtas, 144 de 210 balões exatos, inútil para o tradutor. O detector `server` sozinho sobe as onomatopeias (11 para 18 de 31 exatas), mas nos balões, que são o que se lê, cai de 192 para 188 exatos: some palavra curta e uma ou outra linha sai lida de cabeça para baixo. E custa 553 ms por tela, 2,5 vezes o `mobile`. Os dois juntos: 170 de 210, 739 ms. Nenhuma combinação melhora o balão de fala, e todas custam mais.
+
 ---
 ## 5. Incerta / exploratória
 
 | ID | Resumo | Conexão | Status |
 | --- | --- | --- | --- |
 | **S1** | Desacoplar a segunda passada de OCR da geometria do mosaico | P1; A2, A3, A4, A9; I6, I8 | 🔍 Em avaliação |
-| **I7** | OCR com model_type = server, medido contra o gabarito | P1; A2, A9 | 🔍 Em avaliação |
 | **I8** | comic-text-detector no lugar do DBNet em ocr_composite.py | P1; A2, A3, A9 | 🔍 Em avaliação |
 | **I14** | OCR só na faixa que entrou na tela, em vez da tela inteira | P1; A14 | 🔍 Em avaliação |
 
@@ -288,9 +292,6 @@ Reavaliar se a exclusao de captura falhar em alguma maquina: e o plano B natural
 Três coisas precisam ser decididas antes de isto virar Pendente: qual mecanismo de desacoplamento (isolar por chamada, agrupar recortes por faixa de tamanho, ou outro); como arbitrar entre a primeira leitura e a segunda sem depender da confiança do reconhecedor (A4), já que hoje uma leitura confiante e errada ganha de uma correta; e qual orçamento de tempo é aceitável, dado que o desenho atual existe justamente para não pagar uma chamada por região (A1).
 
 Condição de disparo: o gabarito (I6) e o teste do comic-text-detector (I8). Se o detector achar os balões curtos, esta síntese é descartada; se não, o gabarito dá a amostra que faltava para medir o mecanismo escolhido sem o número oscilar por conta de uma página só.
-
-<a id="i7"></a>
-**I7 — OCR com model_type = server, medido contra o gabarito.** Falta o gabarito (I6) para o número valer: com ~21 balões o resultado oscila. O experimento em si é uma linha de configuração (`OCRConfig.model_type`); o que falta é decidir o critério de aceite (recall, exatidão e CER do baseline, com tamanho da amostra) e o custo de VRAM e de tempo que se aceita pagar.
 
 <a id="i8"></a>
 **I8 — comic-text-detector no lugar do DBNet em ocr_composite.py.** Falta medir se ele acha os balões curtos e as linhas com til que o DBNet perde (A2, A9), e se acha sem depender da geometria do mosaico (A3). Falta também decidir o formato de integração: o modelo é um detector, então o reconhecedor do RapidOCR precisaria receber as caixas dele, e `ocr_composite.py` já lida com atribuição por região. Se der certo, a segunda passada em mosaico sai e S1 é descartada; se não, vira Descartada com a medição.

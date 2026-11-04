@@ -4,7 +4,7 @@
 >
 > **Legenda:** `A#` achado de leitura de código/medição · `P#` problema relatado · `I#` ideia pesada como candidata · `S#` síntese causal.
 >
-> **Última mudança (2026-11-03):** a tradução ficou 100% local (I9 descartada) e o TranslateGemma entrou como segunda passada com contexto (I10); o gabarito das capturas ficou pronto (I6), e a lentidão da segunda passada virou A21, com a recompilação para a GPU sem tensor cores como experimento (I15).
+> **Última mudança (2026-11-04):** o gabarito ganhou a régua `eval_captures.py` com a linha de base do app (I6), e o modelo `server` do RapidOCR foi medido contra ela e descartado (I7).
 
 ## Contexto e escopo
 
@@ -153,7 +153,7 @@ Endossada. Implementada — ver ROADMAP.
 
 **I7. OCR com o modelo `server`** *(origem: própria)*
 Trocar o par de modelos do RapidOCR pelo maior, só mudando a configuração, e medir contra o gabarito.
-Endossada como experimento; o resultado decide. Em avaliação — ver ROADMAP.
+Descartada pela medição: o PP-OCRv5 só tem `server` em chinês, o reconhecedor chinês junta palavras, e o detector `server` piora o balão de fala a 2,5 vezes o custo. Números no ROADMAP.
 
 **I8. Detector de linha treinado em mangá no lugar do DBNet** *(origem: própria)*
 O `comic-text-detector` ocuparia o estágio que falha em A2, A3 e A9. Se achar os balões curtos, a segunda passada em mosaico deixa de ser necessária. A diferença para I1 é que o alvo é o detector de linha, não o reconhecedor.
