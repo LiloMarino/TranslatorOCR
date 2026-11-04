@@ -10,11 +10,9 @@ processo -- VRAM de modelos diferentes não é liberada de forma confiável no m
 processo Python, e rodar cada um isolado é o que garante que o pico medido é só
 daquele candidato.
 
-Sem métrica automática de acurácia: o dataset (Kaggle webtoons-comic-pages-and-text,
-em `dataset/`) não vem com nenhuma referência limpa por balão -- o `.txt` que
-acompanha cada imagem é ruidoso (despejo de página inteira, com onomatopeia, texto
-de logo invertido etc.) e é ignorado de propósito. A qualidade da tradução se mede às
-cegas em `scripts/eval_translation.py`; aqui as saídas só são impressas para conferência.
+As páginas vêm de `eval/pages/`, as mesmas de `scripts/eval_pages.py`. Sem métrica
+automática de acurácia: a qualidade da tradução se mede às cegas em
+`scripts/eval_translation.py`; aqui as saídas só são impressas para conferência.
 
 Roda o pipeline de OCR (detector + reconhecedor, reaproveitando `build_ocr`) sobre
 arquivo de imagem em vez de captura de tela -- é também a primeira validação do
@@ -71,10 +69,13 @@ class PageResult:
     first_block_time: float | None = None
 
 
+IMAGE_SUFFIXES = {".webp", ".png", ".jpg", ".jpeg"}
+
+
 def _sample_images(data_dir: Path, count: int, seed: int) -> list[Path]:
-    images = sorted(data_dir.glob("*/*.jpg"))
+    images = sorted(p for p in data_dir.iterdir() if p.suffix.lower() in IMAGE_SUFFIXES)
     if not images:
-        raise SystemExit(f"Nenhuma imagem em {data_dir} (esperado <id>/<id>.jpg)")
+        raise SystemExit(f"Nenhuma imagem em {data_dir}")
     random.Random(seed).shuffle(images)
     return images[:count]
 
@@ -232,7 +233,7 @@ def _print_report(
             if shown >= 12:
                 break
             review = " [needs_review]" if block.needs_review else ""
-            print(f"    {DIM}{page.path.parent.name}{RESET}{review}")
+            print(f"    {DIM}{page.path.stem}{RESET}{review}")
             print(f"      EN: {block.source[:90]}")
             print(f"      ->  {block.output!r}")
             shown += 1
@@ -243,9 +244,7 @@ def _print_report(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="benchmark_llm", description=__doc__)
     parser.add_argument("--candidate", required=True, choices=["nmt", "gemma"])
-    parser.add_argument(
-        "--data", default=str(ROOT / "dataset" / "Action"), help="pasta <id>/<id>.jpg"
-    )
+    parser.add_argument("--data", default=str(ROOT / "eval" / "pages"), help="pasta de imagens")
     parser.add_argument("--samples", type=int, default=8)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--n-gpu-layers", type=int, default=-1, help="-1 = offload total")

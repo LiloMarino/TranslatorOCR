@@ -110,7 +110,7 @@ uv run scripts/eval_pages.py          # todas as páginas
 uv run scripts/eval_pages.py page02   # uma só
 ```
 
-Cada página roda inteira e em 8 vistas de tela simuladas (reduzida a 100/80/65/50% dentro de um desktop 1920x1080, no topo e no meio do scroll), e o script aponta balão faltando, lixo e balão duplicado. Para acrescentar uma página, basta o screenshot e o JSON. Ele substitui o `dataset/` como referência: aquele são recortes de 160x200 com rótulo ruidoso, e passar nele não previu o resultado numa página de verdade.
+Cada página roda inteira e em 10 vistas de tela simuladas (escala de 130/100/80/65/50% dentro de um desktop 1920x1080, no topo e no meio do scroll), e o script aponta balão faltando, lixo e balão duplicado. Para acrescentar uma página, basta o screenshot e o JSON, e depois um `--fit-boxes`.
 
 O ruff roda com `BLE` e `N` habilitados de propósito: os `except Exception` do projeto são decisões conscientes de fronteira (ctypes, rede, carga de modelo) e cada um carrega um `noqa` explicando, e os overrides do Qt precisam violar a convenção de nome (`paintEvent`, `a0`, `eventType`) para manter compatibilidade de assinatura com os stubs do PyQt6.
 

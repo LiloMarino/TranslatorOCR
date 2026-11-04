@@ -11,10 +11,8 @@ acrescentar uma página, basta o screenshot e o JSON, e depois um `--fit-boxes` 
 gravar onde cada balão está. A pasta é local e fica fora do versionamento: são páginas
 de mangá de terceiros.
 
-Por que não o `dataset/`: são recortes de 160x200 com rótulo ruidoso, e passar nele não
-previu o resultado numa página de verdade. Aqui a página roda inteira e também como ela
-aparece na tela — reduzida ou ampliada, dentro de um desktop 1920x1080, em duas posições
-de scroll.
+A página roda inteira e também como ela aparece na tela — reduzida ou ampliada, dentro
+de um desktop 1920x1080, em duas posições de scroll.
 
 **Recall é cobrado em toda vista**, e não só na página inteira. Para isso o JSON guarda a
 posição de cada balão (`boxes`), o que permite saber quais deles cabem inteiros na vista

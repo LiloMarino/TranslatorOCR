@@ -182,7 +182,6 @@ area.json
 
 # Pesos baixados por scripts/fetch_models.py
 models/
-dataset/
 
 CLAUDE.md
 
