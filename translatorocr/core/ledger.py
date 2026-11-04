@@ -194,12 +194,13 @@ class BlockLedger:
             segment.entries = [e for e in segment.entries if e.misses < self._cfg.max_misses]
             return pending
 
-    def record(self, reading: Reading, pending: list[TextBlock]) -> None:
-        """Guarda os blocos que acabaram de ser traduzidos."""
+    def record(self, reading: Reading, pending: list[TextBlock]) -> list[Entry]:
+        """Guarda os blocos que acabaram de ser traduzidos e devolve as entradas deles."""
         with self._lock:
             segment = reading.segment
             if reading.generation != self._generation or segment is None:
-                return
+                return []
+            recorded: list[Entry] = []
             for block in pending:
                 strip = self._to_strip(block.bbox, reading.offset, segment)
                 entry = reading.replaces.get(id(block))
@@ -212,6 +213,8 @@ class BlockLedger:
                 entry.confidence = block.confidence
                 entry.partial = is_partial(block)
                 entry.needs_review = block.needs_review
+                recorded.append(entry)
+            return recorded
 
     def context(self, reading: Reading, block: TextBlock, limit: int | None = None) -> list[Entry]:
         """Os balões anteriores a `block`, em ordem de leitura.
@@ -221,14 +224,22 @@ class BlockLedger:
         """
         with self._lock:
             current = reading.segment
-            ordered = sorted((s for s in self._segments if s is not current), key=lambda s: s.used)
-            before: list[Entry] = []
-            for segment in ordered:
-                before.extend(_reading_order(segment.entries))
-            if current is not None:
-                top = self._to_strip(block.bbox, reading.offset, current)[1]
-                before.extend(_reading_order([e for e in current.entries if e.bbox[1] < top]))
-            return before[-(limit or self._cfg.context_size) :]
+            top = self._to_strip(block.bbox, reading.offset, current)[1] if current else 0
+            return self._before(current, top, limit)
+
+    def history(self, entry: Entry, limit: int | None = None) -> list[Entry] | None:
+        """O mesmo contexto de `context`, para um balão já registrado. `None` quando a
+        entrada saiu do registro (recomeço, ou faltas seguidas)."""
+        with self._lock:
+            segment = next((s for s in self._segments if any(e is entry for e in s.entries)), None)
+            if segment is None:
+                return None
+            return self._before(segment, entry.bbox[1], limit)
+
+    def revise(self, entry: Entry, translated: str) -> None:
+        """Troca a tradução guardada pela da segunda passada."""
+        with self._lock:
+            entry.translated = translated
 
     # -- redesenho (GUI) -----------------------------------------------------
 
@@ -262,7 +273,46 @@ class BlockLedger:
                 )
             return restored
 
+    def refresh(self, shown: list[TextBlock]) -> bool:
+        """Leva aos blocos desenhados a tradução que o registro tem agora para eles.
+
+        É por aqui que a segunda passada chega à tela: o bloco desenhado é casado com a
+        entrada por posição, e só herda a tradução se o texto for o mesmo. Devolve se
+        algum bloco mudou.
+        """
+        with self._lock:
+            segment = self._current
+            if segment is None:
+                return False
+            changed = False
+            for block in shown:
+                entry = self._match(segment, self._to_strip(block.bbox, self._offset, segment))
+                if (
+                    entry is not None
+                    and entry.translated is not None
+                    and entry.translated != block.translated
+                    and _same_text(entry.source, block.source)
+                ):
+                    block.translated = entry.translated
+                    changed = True
+            return changed
+
+    @property
+    def offset(self) -> int:
+        """Deslocamento acumulado da rolagem, o mesmo que uma leitura iniciada agora usa."""
+        with self._lock:
+            return self._offset
+
     # -- internos (já com o lock) --------------------------------------------
+
+    def _before(self, current: Segment | None, top: int, limit: int | None) -> list[Entry]:
+        ordered = sorted((s for s in self._segments if s is not current), key=lambda s: s.used)
+        before: list[Entry] = []
+        for segment in ordered:
+            before.extend(_reading_order(segment.entries))
+        if current is not None:
+            before.extend(_reading_order([e for e in current.entries if e.bbox[1] < top]))
+        return before[-(limit or self._cfg.context_size) :]
 
     def _tick(self) -> int:
         self._stamp += 1

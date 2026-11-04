@@ -1,19 +1,20 @@
 """Benchmark de tradutores locais sobre imagens reais de webtoon.
 
     uv run scripts/benchmark_llm.py --candidate nmt
-    uv run scripts/benchmark_llm.py --candidate llm --model-path models/qwen3-4b-q4.gguf
-    uv run scripts/benchmark_llm.py --candidate llm --model-path ... --n-gpu-layers 20
+    uv run scripts/benchmark_llm.py --candidate gemma
+    uv run scripts/benchmark_llm.py --candidate gemma --n-gpu-layers 20
 
 Mede, por candidato, latência ponta a ponta, latência do primeiro bloco pronto e
-pico de VRAM. Um candidato por processo -- VRAM de modelos diferentes não é
-liberada de forma confiável no mesmo processo Python, e rodar cada um isolado é o
-que garante que o pico medido é só daquele candidato.
+pico de VRAM, com o detector e o OCR carregados junto, como no app. Um candidato por
+processo -- VRAM de modelos diferentes não é liberada de forma confiável no mesmo
+processo Python, e rodar cada um isolado é o que garante que o pico medido é só
+daquele candidato.
 
 Sem métrica automática de acurácia: o dataset (Kaggle webtoons-comic-pages-and-text,
 em `dataset/`) não vem com nenhuma referência limpa por balão -- o `.txt` que
 acompanha cada imagem é ruidoso (despejo de página inteira, com onomatopeia, texto
-de logo invertido etc.) e é ignorado de propósito. A avaliação de qualidade
-(correção de OCR pelo LLM, tradução) é impressa lado a lado para julgamento visual.
+de logo invertido etc.) e é ignorado de propósito. A qualidade da tradução se mede às
+cegas em `scripts/eval_translation.py`; aqui as saídas só são impressas para conferência.
 
 Roda o pipeline de OCR (detector + reconhecedor, reaproveitando `build_ocr`) sobre
 arquivo de imagem em vez de captura de tela -- é também a primeira validação do
@@ -153,94 +154,28 @@ class NMTCandidate:
         cache = TranslationCache(":memory:")
         self._translator = NMTTranslator(config.translation, cache)
 
-    def translate_one(self, text: str, context: list[str]) -> str | None:
+    def translate_one(self, text: str, context: list[tuple[str, str]]) -> str | None:
         return self._translator.translate([text], "en", "pt")[0]
 
 
-def _strip_think(text: str) -> str:
-    """Remove o bloco `<think>...</think>` do Qwen3 (vazio, com `/no_think`).
+class GemmaCandidate:
+    """A segunda passada do app, com as falas anteriores da página como contexto."""
 
-    Se `<think>` abriu mas nunca fechou, o `max_tokens` cortou no meio do
-    raciocínio antes de chegar numa resposta de verdade -- o que sobrou é
-    raciocínio truncado, não tradução, então devolve vazio em vez de expor lixo
-    como se fosse a saída.
-    """
-    text = text.strip()
-    if "</think>" in text:
-        return text.rsplit("</think>", 1)[-1].strip()
-    if text.startswith("<think>"):
-        return ""
-    return text
+    name = "gemma"
 
+    def __init__(self, n_gpu_layers: int) -> None:
+        from translatorocr.backends.translate_gemma import GemmaTranslator
+        from translatorocr.config import RefineConfig
 
-class LLMCandidate:
-    """Wrapper ad-hoc de exploração -- não é a `LLMTranslator` de produção.
+        self._translator = GemmaTranslator(RefineConfig(n_gpu_layers=n_gpu_layers), cache=None)
 
-    Esse modelo é experimental; isolar o experimento aqui evita construir a peça
-    de produção em cima de um modelo que pode não ser o escolhido.
-    """
-
-    name = "llm"
-
-    def __init__(self, model_path: str, n_gpu_layers: int, n_ctx: int, glossary: dict) -> None:
-        from llama_cpp import Llama
-
-        self._llm = Llama(
-            model_path=model_path,
-            n_gpu_layers=n_gpu_layers,
-            n_ctx=n_ctx,
-            verbose=False,
-        )
-        self._glossary = glossary
-
-    def _user_content(self, text: str, context: list[str]) -> str:
-        glossary_txt = ""
-        if self._glossary:
-            pairs = ", ".join(f"{k} -> {v}" for k, v in self._glossary.items())
-            glossary_txt = f"Glossário de nomes próprios: {pairs}\n"
-        context_txt = ""
-        if context:
-            context_txt = "Contexto (falas anteriores já traduzidas): " + " / ".join(context) + "\n"
-        # "/no_think" é a chave documentada do Qwen3 pra desligar o modo de raciocínio
-        # por mensagem -- sem isso a resposta vem precedida de um bloco <think>...</think>
-        # que o completion cru (sem chat template) não sabia nem que existia.
-        return (
-            f"{glossary_txt}{context_txt}Texto (com possíveis erros de OCR): {text}\n"
-            "Responda APENAS com a tradução final em português brasileiro, sem "
-            "explicação, sem aspas, sem repetir o original. /no_think"
-        )
-
-    def translate_one(self, text: str, context: list[str]) -> str | None:
-        # create_chat_completion (não __call__ com prompt cru) porque modelos
-        # instruct-tuned como o Qwen3 esperam o chat template embutido no GGUF --
-        # sem ele o modelo às vezes só ecoa o texto de entrada em vez de segui-lo
-        # como instrução (medido: "Hey Dog." voltou "Hey Dog." sem tradução nenhuma).
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    "Você corrige erros de OCR em texto de balão de quadrinho em inglês "
-                    "e traduz para português brasileiro, num só passo."
-                ),
-            },
-            {"role": "user", "content": self._user_content(text, context)},
-        ]
-        out = self._llm.create_chat_completion(messages=messages, max_tokens=300, temperature=0.2)
-        result = _strip_think(out["choices"][0]["message"]["content"])
-        return result or None
-
-
-def _load_glossary(path: str | None) -> dict:
-    if not path:
-        return {}
-    import json
-
-    return json.loads(Path(path).read_text(encoding="utf-8"))
+    def translate_one(self, text: str, context: list[tuple[str, str]]) -> str | None:
+        return self._translator.translate(text, context)
 
 
 def run_candidate(candidate, config, ocr, images: list[Path]) -> list[PageResult]:
     results: list[PageResult] = []
-    context: deque[str] = deque(maxlen=6)
+    context: deque[tuple[str, str]] = deque(maxlen=6)
 
     for path in images:
         image = cv2.imread(str(path))
@@ -261,7 +196,7 @@ def run_candidate(candidate, config, ocr, images: list[Path]) -> list[PageResult
                 output = None
             elapsed = time.perf_counter() - b_start
             if output:
-                context.append(output)
+                context.append((block.source, output))
             if i == 0:
                 page.first_block_time = elapsed
             page.blocks.append(
@@ -307,16 +242,13 @@ def _print_report(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="benchmark_llm", description=__doc__)
-    parser.add_argument("--candidate", required=True, choices=["nmt", "llm"])
+    parser.add_argument("--candidate", required=True, choices=["nmt", "gemma"])
     parser.add_argument(
         "--data", default=str(ROOT / "dataset" / "Action"), help="pasta <id>/<id>.jpg"
     )
     parser.add_argument("--samples", type=int, default=8)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--model-path", help="obrigatório para --candidate llm (arquivo .gguf)")
     parser.add_argument("--n-gpu-layers", type=int, default=-1, help="-1 = offload total")
-    parser.add_argument("--n-ctx", type=int, default=4096)
-    parser.add_argument("--glossary", help="JSON opcional {'nome': 'tradução'}")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
 
@@ -325,9 +257,6 @@ def main(argv: list[str] | None = None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(errors="backslashreplace")
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO)
-
-    if args.candidate == "llm" and not args.model_path:
-        parser.error("--candidate llm precisa de --model-path")
 
     images = _sample_images(Path(args.data), args.samples, args.seed)
     print(f"{len(images)} imagens de {args.data}")
@@ -338,8 +267,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.candidate == "nmt":
             candidate = NMTCandidate(config)
         else:
-            glossary = _load_glossary(args.glossary)
-            candidate = LLMCandidate(args.model_path, args.n_gpu_layers, args.n_ctx, glossary)
+            candidate = GemmaCandidate(args.n_gpu_layers)
 
         results = run_candidate(candidate, config, ocr, images)
 

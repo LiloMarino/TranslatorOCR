@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import time
 
-from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal, pyqtSlot
 
 from .. import assets
 from ..config import Config
@@ -20,11 +20,10 @@ log = logging.getLogger(__name__)
 
 
 class PipelineWorker(QObject):
-    ready = pyqtSignal(list)  # list[TextBlock]
-    # Emitido depois de `ready`, só quando há bloco `needs_review` e LLM está
-    # configurado — carrega só os blocos que o refino de fato mudou, para o overlay
-    # atualizar in-place sem recriar o resto (ver ui/overlay.py:set_blocks).
-    refined = pyqtSignal(list)  # list[TextBlock]
+    # Os blocos e o deslocamento da rolagem em que a leitura começou.
+    ready = pyqtSignal(list, int)  # list[TextBlock], int
+    # A segunda passada trocou a tradução de um balão no registro.
+    refined = pyqtSignal()
     failed = pyqtSignal(str)
     started_loading = pyqtSignal()
     # Texto curto do que está acontecendo durante a carga ("Baixando tradutor offline
@@ -49,6 +48,7 @@ class PipelineWorker(QObject):
         # O registro é do `App`, que o alimenta com a rolagem; o pipeline o consulta.
         self._ledger = ledger
         self._pipeline = None
+        self._refine_scheduled = False
 
     @pyqtSlot()
     def initialize(self) -> None:
@@ -70,9 +70,8 @@ class PipelineWorker(QObject):
         self.finished_loading.emit(time.perf_counter() - started)
 
     def _download_missing(self) -> None:
-        """Primeira execução: baixa o detector e o NMT. O LLM fica de fora — está
-        desligado por padrão e são 2.5 GB."""
-        groups = ["detector", "nmt"] + (["llm"] if self._cfg.llm.enabled else [])
+        """Primeira execução: baixa o detector, o NMT e o TranslateGemma."""
+        groups = ["detector", "nmt"] + (["translategemma"] if self._cfg.refine.enabled else [])
         if not assets.missing(groups):
             return
 
@@ -94,8 +93,8 @@ class PipelineWorker(QObject):
 
         failed = assets.ensure(groups, on_start, on_progress)
         if failed:
-            # Sem rede: o registry segue sem o detector e avisa no log. Sem o tradutor
-            # ele levanta, e a falha chega ao usuário pelo `failed`.
+            # Sem rede: o registry segue sem o detector e sem a segunda passada, e avisa
+            # no log. Sem o tradutor ele levanta, e a falha chega ao usuário pelo `failed`.
             names = ", ".join(assets.LABELS[g] for g in failed)
             self.loading_progress.emit(f"Não foi possível baixar: {names}. Seguindo sem.")
 
@@ -111,25 +110,40 @@ class PipelineWorker(QObject):
         if self._pipeline is None:
             self.failed.emit("Pipeline ainda não inicializado.")
             return
+        offset = self._ledger.offset if self._ledger else 0
         try:
             blocks = self._pipeline.run(region)
-            self.ready.emit(blocks)
         except Exception as exc:
             log.exception("Falha durante a captura")
             self.failed.emit(str(exc))
             return
+        self.ready.emit(blocks, offset)
+        self._schedule_refine()
 
-        # Roda depois do ready.emit, na mesma thread: o LLM é lento, então fica
-        # fora do caminho crítico de latência. Só existe trabalho aqui quando há
-        # bloco needs_review e LLM está configurado — Pipeline.refine() já devolve
-        # lista vazia nos outros casos.
-        try:
-            changed = self._pipeline.refine(blocks)
-        except Exception:
-            log.exception("Falha durante o refino por LLM")
+    def _schedule_refine(self) -> None:
+        """Agenda o próximo balão da segunda passada para a volta seguinte do loop.
+
+        Um balão por volta: o pedido de captura que chegar enquanto a Gemma traduz entra
+        na fila do Qt antes do próximo balão, e espera no máximo um. OCR e Gemma nunca
+        disputam a GPU, porque os dois rodam nesta thread.
+        """
+        if self._refine_scheduled or self._pipeline is None or not self._pipeline.refining:
             return
+        self._refine_scheduled = True
+        QTimer.singleShot(0, self._refine_step)
+
+    def _refine_step(self) -> None:
+        self._refine_scheduled = False
+        if self._pipeline is None:
+            return
+        try:
+            changed = self._pipeline.refine_next()
+        except Exception:
+            log.exception("Falha na segunda passada")
+            changed = False
         if changed:
-            self.refined.emit(changed)
+            self.refined.emit()
+        self._schedule_refine()
 
 
 class WorkerThread:

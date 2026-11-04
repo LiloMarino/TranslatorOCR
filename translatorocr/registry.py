@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 
-from .backends.base import CaptureBackend, LLMBackend, OCRBackend, TranslatorBackend
+from .backends.base import CaptureBackend, OCRBackend, RefinerBackend, TranslatorBackend
 from .backends.cache import TranslationCache
 from .config import Config
 from .core.collector import CaptureCollector
@@ -66,22 +66,22 @@ def build_translator(config: Config) -> TranslatorBackend:
         ) from exc
 
 
-def build_llm(config: Config) -> LLMBackend | None:
-    """`None` quando desligado ou o modelo não foi baixado: o app segue só com o NMT,
-    com um warning dizendo o que fazer."""
-    if not config.llm.enabled:
+def build_refiner(config: Config) -> RefinerBackend | None:
+    """`None` quando desligado, sem o modelo ou sem o llama-cpp: o app segue só com o
+    opus-mt, com um warning dizendo o que fazer."""
+    if not config.refine.enabled:
         return None
 
-    from .backends.translate_llm import LLMTranslator
+    from .backends.translate_gemma import GemmaTranslator
 
     try:
-        return LLMTranslator(config.llm)
+        return GemmaTranslator(config.refine, TranslationCache(config.translation.cache_path))
     except FileNotFoundError as exc:
-        log.warning("Tier de LLM indisponível: %s", exc)
+        log.warning("Segunda passada da tradução indisponível: %s", exc)
         return None
     except ImportError as exc:
         log.warning(
-            "Tier de LLM indisponível: %s. Rode `uv sync --group llm` "
+            "Segunda passada da tradução indisponível: %s. Rode `uv sync --group llm` "
             '(precisa de CMAKE_ARGS="-DGGML_CUDA=on" pra compilar com suporte a GPU).',
             exc,
         )
@@ -102,7 +102,7 @@ def build_pipeline(
         capture=capture or build_capture(config),
         ocr=build_ocr(config),
         translator=build_translator(config),
-        llm=build_llm(config),
+        refiner=build_refiner(config),
         ledger=ledger,
         collector=collector,
     )

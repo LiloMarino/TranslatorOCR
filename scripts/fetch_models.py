@@ -4,8 +4,9 @@
     uv run scripts/fetch_models.py detector    # só um grupo
     uv run scripts/fetch_models.py --force     # rebaixa mesmo se já existe
 
-O app já baixa sozinho o detector e o NMT na primeira execução; este script serve para
-baixar antes, forçar um re-download, ou buscar o LLM (fora do download automático).
+O app já baixa sozinho o detector, o NMT e o TranslateGemma na primeira execução; este
+script serve para baixar antes, forçar um re-download, ou buscar os leitores do gabarito
+de OCR (fora do download automático).
 A lista de modelos e o download moram em `translatorocr/assets.py`.
 """
 

@@ -4,7 +4,7 @@ Tradutor de tela ao vivo para Windows: captura uma região da tela, encontra ond
 
 O caso de uso é **ler mangá sem tradução no navegador**, rolando a página normalmente. Jogos com diálogo em inglês funcionam, mas não são o foco.
 
-> **Status: funcionando.** Captura por hotkey e modo leitura que acompanha a rolagem (com seleção de área opcional), detector de balão, OCR na GPU com segunda passada para o que o primeiro passe perdeu, gate entre reconhecimento e tradução, e tradução **100% local** por NMT, sem rede e sem cota, desenhando em overlay click-through. O que está em aberto mora em [OCR_ANALYSIS.md](OCR_ANALYSIS.md) e [ROADMAP.md](ROADMAP.md).
+> **Status: funcionando.** Captura por hotkey e modo leitura que acompanha a rolagem (com seleção de área opcional), detector de balão, OCR na GPU com segunda passada para o que o primeiro passe perdeu, gate entre reconhecimento e tradução, e tradução **100% local**, sem rede e sem cota: o NMT desenha na hora e a TranslateGemma refaz cada fala com as anteriores como contexto, desenhando em overlay click-through. O que está em aberto mora em [OCR_ANALYSIS.md](OCR_ANALYSIS.md) e [ROADMAP.md](ROADMAP.md).
 
 ## Como rodar
 
@@ -13,7 +13,7 @@ uv sync
 uv run python -m translatorocr
 ```
 
-Não há nada para configurar. Na primeira execução o app baixa sozinho o detector de balão e o tradutor offline (~640 MB), com o progresso no console; os modelos do RapidOCR também vêm sozinhos. Sem rede, o app ainda abre: sem o detector ele agrupa por proximidade, e sem rede a tradução cai para o NMT offline — com aviso, nunca crash. `uv run scripts/fetch_models.py` baixa os mesmos modelos à mão (ou força um re-download com `--force`).
+Não há nada para configurar. Na primeira execução o app baixa sozinho o detector de balão, o tradutor offline (~640 MB) e a TranslateGemma (~2.5 GB), com o progresso no console; os modelos do RapidOCR também vêm sozinhos. Sem rede, o app ainda abre: sem o detector ele agrupa por proximidade, e sem a TranslateGemma fica só a tradução do NMT — com aviso, nunca crash. `uv run scripts/fetch_models.py` baixa os mesmos modelos à mão (ou força um re-download com `--force`).
 
 Ao abrir, o console mostra só isto:
 
@@ -34,9 +34,9 @@ O ícone na bandeja tem os mesmos comandos (o clique simples liga e desliga a tr
 
 Balão com borda âmbar é leitura duvidosa: confiança baixa, glifo estranho removido, ou balão cortado pela borda da captura.
 
-### LLM local (opcional, desligado)
+### Segunda passada da tradução (TranslateGemma)
 
-Existe um tier de LLM (Qwen3-4B) que corrige OCR duvidoso e traduz de novo, num segundo passe. Ele fica **desligado por padrão**: medido em páginas reais, ele nunca aciona em página limpa e, quando forçado, traduziu pior que o NMT (trocou sentido, errou concordância, repetiu a fala anterior), ocupando ~2.5 GB de VRAM. Para ligá-lo, `LLMConfig.enabled` em [config.py](translatorocr/config.py), `uv run scripts/fetch_models.py llm`, e o `llama-cpp-python` compilado com CUDA, que **não tem wheel pré-compilado para Windows**:
+A TranslateGemma roda pelo `llama-cpp-python`, que fica num grupo opcional porque **não tem wheel pré-compilado com CUDA para Windows**. Sem ele o app funciona igual, só com a tradução do NMT, e avisa no console. Para ter a segunda passada:
 
 ```bash
 uv sync --group llm
@@ -140,13 +140,13 @@ flowchart TD
     CACHE -->|"hit"| DRAW
     CACHE -->|"miss"| NMT["<b>NMT local</b><br/>CTranslate2 + opus-mt · CPU int8<br/>caixa de frase · uma frase por vez"]
     NMT --> DRAW["<b>Overlay click-through</b><br/>caixa escura no bbox<br/>borda âmbar se duvidoso"]
+    DRAW --> GEMMA["<b>2ª passada da tradução</b><br/>TranslateGemma 4B · GPU<br/>um balão novo por vez, 2+ palavras<br/>falas anteriores como contexto"]
+    GEMMA -->|"atualiza in-place"| DRAW
 
     OCR -.-> STAB{"Gate de<br/>estabilidade"}
-    GATE -.->|"needs_review, depois do 1º desenho"| LLM["LLM local (desligado)<br/>Qwen3-4B Q4_K_M<br/>corrige OCR + traduz"]
-    LLM -.->|"atualiza in-place"| DRAW
 
     classDef planned stroke-dasharray:5 5,opacity:0.75
-    class STAB,LLM planned
+    class STAB planned
 ```
 
 Os pontos não óbvios do desenho.
@@ -157,7 +157,7 @@ A **segunda passada** existe porque o detector de linha do RapidOCR (DBNet) perd
 
 O **gate** tem duas saídas, não uma. Lixo evidente é descartado antes de pagar tradução; o que é apenas duvidoso segue, marcado, e o overlay desenha a caixa com borda âmbar. Ler uma tradução incerta sabendo que ela é incerta é melhor que lê-la com a mesma aparência confiante de um acerto. Um glifo impossível no meio de uma frase boa (um alfa grego no lugar de um D) é removido e marca o bloco, em vez de derrubar o balão inteiro; bloco sem nenhuma letra (decoração lida como "80") é descartado.
 
-**O LLM não substitui o NMT**, e hoje está desligado. O NMT quase sempre tem sucesso mesmo em blocos `needs_review` — o problema ali não é falta de tradução, é OCR duvidoso entrando cru. Por isso o LLM foi desenhado como uma **segunda passada**, depois que a tradução rápida já foi desenhada, atualizando a caixa in-place. Medido em página real, ele não compensou (ver "LLM local" em "Como rodar").
+**A TranslateGemma não substitui o NMT, vem depois dele.** O NMT traduz um balão em ~0.13 s e a TranslateGemma em ~2.6 s, então o NMT desenha na hora e a Gemma refaz um balão novo por vez, com as falas anteriores (já na melhor tradução que têm) como contexto. Numa comparação cega em 89 balões, ela errou o sentido em 8 contra 11 do NMT; o ganho está nas frases, então balão de uma palavra só (quase sempre onomatopeia ou nome) fica com o NMT. A Gemma e o OCR dividem a GPU sem disputar: os dois rodam na thread do worker, e uma captura pendente passa na frente entre um balão e outro. Rolando rápido, a fila pode ficar alguns balões atrás do que está na tela.
 
 O gate de estabilidade, esse sim ainda não existe: jogos animam texto letra por letra, e OCR disparado no meio da animação lê meia frase. Deixou de estar bloqueado — o modo leitura já mantém o quadro anterior — mas continua sem prioridade, porque o caso é de jogo e o foco é mangá (S3 no [ROADMAP.md](ROADMAP.md)).
 
@@ -182,6 +182,7 @@ flowchart LR
         B1["CaptureBackend<br/>MSSCapture"]
         B3["OCRBackend<br/>RapidOCRBackend"]
         B4["TranslatorBackend<br/>NMTTranslator"]
+        B5["RefinerBackend<br/>GemmaTranslator"]
     end
 
     DB[("cache.sqlite")]
@@ -194,11 +195,14 @@ flowchart LR
     PIPE --> B1
     PIPE --> B3
     PIPE --> B4
+    PIPE --> B5
     B4 <--> DB
+    B5 <--> DB
     CFG --> REG
     REG --> B1
     REG --> B3
     REG --> B4
+    REG --> B5
     WRK -->|"sinais de resultado"| OVL
 ```
 
@@ -221,13 +225,13 @@ Os modelos são carregados **uma vez** no ciclo de vida do processo, e o pipelin
 | Detecção de balão        | **RT-DETR-v2** (`ogkalu/comic-text-and-bubble-detector`) | Devolve `bubble`/`text_bubble`/`text_free`, então a fronteira do bloco vem do modelo em vez de heurística de proximidade. NMS-free, com o pós-processamento embutido no grafo ONNX. Apache-2.0                                                                                                   |
 | Gate reconhecer→traduzir | Charset + confiança + heurística de forma                | Lixo é descartado antes de pagar tradução; o duvidoso segue marcado e ganha borda âmbar no overlay                                                                                                                                                                                                |
 | Tradução                 | **CTranslate2 + opus-mt-tc-big-en-pt**                   | 50 balões em 0.82 s em **CPU**. Ilimitado e offline. Roda em CPU de propósito — ver a nota abaixo. Recebe o balão em caixa de frase e uma frase por vez — ver a nota abaixo                                                                               |
-| Tradução com correção    | **Qwen3-4B Q4_K_M** (`llama-cpp-python`, GGUF), desligado | Corrige artefato de OCR e traduz num passo só, com contexto rolante e glossário. Escolhido contra o Qwen3-8B, mas em página real de mangá não compensou: nunca aciona em página limpa, e forçado traduziu pior que o NMT                                                                          |
+| Tradução com contexto    | **TranslateGemma 4B Q4_K_M** (`llama-cpp-python`, GGUF)  | Segunda passada sobre o NMT, com as falas anteriores como contexto. Em 89 balões, comparação cega: 8 erros de sentido contra 11 do opus-mt, a ~2.6 s por balão                                                                                                                                   |
 
 **O NMT roda em CPU por decisão, não por limitação.** O `ctranslate2.dll` carrega `cublas64_12.dll` por nome, e este venv tem CUDA 13 (veio do `onnxruntime-gpu`). Ligar a GPU custaria o wheel `nvidia-cublas-cu12` de ~553 MB mais um `os.add_dll_directory` manual, para então disputar VRAM com o OCR e o detector. Em CPU são 0.82 s para 50 balões, e a tradução ainda roda concorrente com a inferência de GPU.
 
 **O NMT não recebe o texto como o OCR lê.** Balão de mangá é todo em CAIXA ALTA, e o modelo foi treinado em texto com caixa normal: palavras comuns saíam trocadas por outras de sentido nenhum, e interjeição curta saía com token desconhecido. E com dois períodos no mesmo balão ele engolia o primeiro (uma pergunta seguida de exclamação virava só a exclamação). O balão é convertido para caixa de frase, quebrado em frases, e todas as frases de todos os balões vão num lote só — nas páginas de teste, todas as falas saem certas.
 
-**O LLM local, ao contrário, roda na GPU — e precisa ser compilado assim.** `llama-cpp-python` não tem wheel pré-compilado com suporte a CUDA para Windows/cp313; instalar sem cuidado dá um build CPU-only silencioso (`llama_supports_gpu_offload()` volta `False` sem erro nenhum). Compilar com GPU exige o gerador Ninja e rodar dentro de um ambiente com `cl.exe` no PATH (ver "Como rodar" acima) — o gerador MSBuild padrão do CMake não tem a integração de toolset CUDA no Windows.
+**A TranslateGemma, ao contrário, roda na GPU — e precisa ser compilado assim.** `llama-cpp-python` não tem wheel pré-compilado com suporte a CUDA para Windows/cp313; instalar sem cuidado dá um build CPU-only silencioso (`llama_supports_gpu_offload()` volta `False` sem erro nenhum). Compilar com GPU exige o gerador Ninja e rodar dentro de um ambiente com `cl.exe` no PATH (ver "Como rodar" acima) — o gerador MSBuild padrão do CMake não tem a integração de toolset CUDA no Windows.
 
 **Sem pré-processamento de imagem.** Grayscale, sharpen e aumento de contraste são hábito da era Tesseract e **pioram** reconhecedor neural — o sharpen cria ringing nas bordas anti-aliased, que é exatamente o que faz confundir `rn`↔`m` e `l`↔`I` em fonte de computador limpa.
 

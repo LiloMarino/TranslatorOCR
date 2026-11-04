@@ -48,8 +48,9 @@ import cv2
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from translatorocr.assets import TRANSLATEGEMMA, TRANSLATEGEMMA_PATH
+from translatorocr.backends.translate_gemma import GemmaTranslator
 from translatorocr.backends.translate_nmt import NMTTranslator
-from translatorocr.config import TranslationConfig
+from translatorocr.config import RefineConfig, TranslationConfig
 
 ROOT = Path(__file__).resolve().parent.parent
 CAPTURES = ROOT / "eval" / "captures"
@@ -60,17 +61,6 @@ VOTES_NAME = "votes.json"
 CANDIDATES = ("opus-mt", "gemma", "gemma-ctx")
 VERDICTS = ("tie", "bad")
 CROP_MARGIN = 24
-
-# Texto do template embutido no GGUF, copiado sem mudar uma letra: o modelo foi
-# treinado com ele, e o `create_chat_completion` do llama-cpp-python não sabe montar o
-# `content` em lista com códigos de idioma que o template exige.
-GEMMA_INSTRUCTION = (
-    "You are a professional English (en) to Portuguese (pt-BR) translator. Your goal is "
-    "to accurately convey the meaning and nuances of the original English text while "
-    "adhering to Portuguese grammar, vocabulary, and cultural sensitivities.\n"
-    "Produce only the Portuguese translation, without any additional explanations or "
-    "commentary. Please translate the following English text into Portuguese:\n\n\n"
-)
 
 
 @dataclass
@@ -112,39 +102,20 @@ def load_pool() -> list[Sample]:
     return list(pool.values())
 
 
-def gemma_turn(text: str) -> str:
-    return f"<start_of_turn>user\n{GEMMA_INSTRUCTION}{text.strip()}<end_of_turn>\n"
-
-
-def gemma_prompt(text: str, history: list[tuple[str, str]]) -> str:
-    """Prompt cru no formato do template; o BOS entra pela tokenização."""
-    turns = "".join(
-        f"{gemma_turn(src)}<start_of_turn>model\n{dst.strip()}<end_of_turn>\n"
-        for src, dst in history
-    )
-    return f"{turns}{gemma_turn(text)}<start_of_turn>model\n"
-
-
 class Gemma:
-    def __init__(self) -> None:
-        import llama_cpp
+    """O tradutor do app, mais a tradução sem contexto memorizada para montar históricos."""
 
+    def __init__(self) -> None:
         if not TRANSLATEGEMMA[0].present():
             raise SystemExit(
                 f"TranslateGemma não encontrado em {TRANSLATEGEMMA_PATH}. "
                 "Rode `uv run scripts/fetch_models.py translategemma`."
             )
-        # Any: llama_cpp não é dependência do grupo padrão, e o pyright roda sem ele.
-        self._llm: Any = llama_cpp.Llama(
-            str(TRANSLATEGEMMA_PATH), n_ctx=2048, n_gpu_layers=-1, verbose=False
-        )
+        self._translator = GemmaTranslator(RefineConfig(), cache=None)
         self._memo: dict[str, str] = {}
 
     def translate(self, text: str, history: list[tuple[str, str]]) -> str:
-        result = self._llm.create_completion(
-            gemma_prompt(text, history), max_tokens=256, temperature=0, stop=["<end_of_turn>"]
-        )
-        return result["choices"][0]["text"].strip()
+        return self._translator.translate(text, history) or ""
 
     def official(self, text: str) -> str:
         """Tradução sem contexto, memorizada: as falas de contexto se repetem entre balões."""
@@ -171,9 +142,8 @@ def generate(round_dir: Path, candidates: list[str], n: int, seed: int) -> None:
     print(f"{len(samples)} balões sorteados de {len(pool)} elegíveis ({len(used)} já usados)")
 
     nmt = NMTTranslator(TranslationConfig(), cache=None)
+    # A carga já aquece a GPU: a primeira medida não paga a subida dos kernels.
     gemma = Gemma()
-    # Aquecimento: a primeira chamada paga a subida dos kernels e distorceria a latência.
-    gemma.translate("Hello there.", [])
 
     def run(name: str, sample: Sample) -> tuple[str, float]:
         if name == "opus-mt":

@@ -134,10 +134,6 @@ class App(QObject):
         self._capture_started = 0.0
         # Modo de leitura: acompanha a rolagem em vez de traduzir um quadro só.
         self._scroll_on = False
-        # Quanto a página andou desde que o modo ligou, e quanto tinha andado quando o
-        # pipeline foi acionado. A diferença corrige o resultado que chega atrasado.
-        self._scroll_offset = 0
-        self._capture_offset = 0
         self._busy = False
         self._settle_pending = False
 
@@ -264,7 +260,6 @@ class App(QObject):
             self.ledger.lost()
         self.tray.set_state("Traduzindo...")
         self._capture_started = time.perf_counter()
-        self._capture_offset = self._scroll_offset
         self._busy = True
         # O worker vive em outra thread; o sinal despacha a chamada pra lá em vez de
         # rodar a inferência aqui e travar a GUI. Sem área selecionada, a captura é a
@@ -349,8 +344,6 @@ class App(QObject):
         self.tray.set_checked(key, self._scroll_on)
         self._set_translation_hidden(False)
         if self._scroll_on:
-            self._scroll_offset = 0
-            self._capture_offset = 0
             self.ledger.lost()
             self.scroll_region.emit(self._region_for_capture())
             self.scroll_start.emit()
@@ -365,7 +358,6 @@ class App(QObject):
             console.info("tradução desligada")
 
     def _on_scrolled(self, dy: int) -> None:
-        self._scroll_offset += dy
         self.ledger.scrolled(dy)
         region = self._region_for_capture()
         had_blocks = bool(self._current_blocks)
@@ -395,16 +387,16 @@ class App(QObject):
 
     # -- resultado ----------------------------------------------------------
 
-    def _on_ready(self, blocks: list) -> None:
+    def _on_ready(self, blocks: list, offset: int) -> None:
         self._busy = False
         self.tray.set_state("Acompanhando a rolagem" if self._scroll_on else "Pronto")
         seconds = time.perf_counter() - self._capture_started
 
         if self._scroll_on:
             # A página pode ter rolado enquanto o pipeline rodava: a leitura descreve a
-            # viewport de meio segundo atrás, então entra corrigida pelo que andou desde
-            # o pedido.
-            drift = self._scroll_offset - self._capture_offset
+            # viewport do momento em que começou, então entra corrigida pelo que andou
+            # desde então.
+            drift = self.ledger.offset - offset
             region = self._region_for_capture()
             fresh = shift_blocks(blocks, drift, region) if drift else blocks
             # O que a leitura achou, mais os balões do registro que ela não cobriu. O
@@ -428,12 +420,8 @@ class App(QObject):
             return
         self.overlay.set_blocks(blocks)
 
-    def _on_refined(self, changed: list) -> None:
-        """`changed` são os mesmos objetos `TextBlock` de `_current_blocks` — um
-        sinal Qt tipado `list` carrega a referência Python através da fila entre
-        threads, não uma cópia — então `block.translated` já está atualizado por
-        identidade; só falta mandar o overlay redesenhar."""
-        if changed:
+    def _on_refined(self) -> None:
+        if self.ledger.refresh(self._current_blocks):
             self.overlay.set_blocks(self._current_blocks)
 
     def _on_failed(self, message: str) -> None:

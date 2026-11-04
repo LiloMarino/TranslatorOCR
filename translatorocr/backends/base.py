@@ -1,7 +1,8 @@
 """Protocolos dos estágios plugáveis.
 
-Três backends principais (Capture, OCR, Translator) mais LLM opcional e DetectorBackend
-para reconhecimento de regiões de texto/balão. DetectorBackend não é um estágio
+Três backends principais (Capture, OCR, Translator), mais o RefinerBackend da segunda
+passada da tradução e o DetectorBackend para reconhecimento de regiões de texto/balão.
+DetectorBackend não é um estágio
 independente do pipeline — é consumido pela CompositeOCR que combina detector e
 reconhecedor sob um único OCRBackend.
 """
@@ -12,7 +13,7 @@ from typing import Protocol, runtime_checkable
 
 import numpy as np
 
-from ..models import Capture, Detection, Region, TextBlock, TextLine
+from ..models import Capture, Detection, Region, TextLine
 
 
 @runtime_checkable
@@ -55,11 +56,11 @@ class TranslatorBackend(Protocol):
 
 
 @runtime_checkable
-class LLMBackend(Protocol):
-    def refine(self, blocks: list[TextBlock]) -> list[str | None]:
-        """Corrige OCR e traduz num só passo, só para os blocos que o gate marcou
-        `needs_review`. Chamado à parte por `Pipeline.refine` após a tradução rápida
-        já estar sendo exibida. `None` mantém a tradução provisória; o refino nunca
-        regride para pior.
+class RefinerBackend(Protocol):
+    def translate(self, text: str, history: list[tuple[str, str]]) -> str | None:
+        """Retraduz uma fala com as anteriores como contexto.
+
+        `history` traz as falas anteriores em ordem de leitura, cada uma em par
+        (original, tradução). `None` mantém a tradução que o balão já tem.
         """
         ...

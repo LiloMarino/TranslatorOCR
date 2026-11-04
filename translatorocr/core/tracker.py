@@ -118,12 +118,7 @@ def is_partial(block: TextBlock) -> bool:
 
 
 def shift_blocks(blocks: list[TextBlock], dy: int, region: Region) -> list[TextBlock]:
-    """Move as caixas junto com o conteúdo e descarta as que saíram da viewport.
-
-    Muda o `bbox` no lugar, e não numa cópia, de propósito: o sinal `refined` do worker
-    identifica os blocos por identidade (ver `App._on_refined`), e trocar os objetos a
-    cada quadro quebraria isso.
-    """
+    """Move as caixas junto com o conteúdo e descarta as que saíram da viewport."""
     kept: list[TextBlock] = []
     for block in blocks:
         x1, y1, x2, y2 = block.bbox

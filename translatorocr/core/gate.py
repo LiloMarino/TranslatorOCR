@@ -3,8 +3,7 @@
 Duas saídas, não uma. Lixo evidente é **descartado** — não paga tradução e não polui a
 tela. Bloco apenas duvidoso **segue**, marcado com `needs_review`, para o overlay
 desenhar diferente: é melhor o usuário ver que a leitura é incerta do que ler uma
-tradução errada sem nenhum aviso. `needs_review` é também o sinal que o tier de LLM
-consome depois para decidir se vale acordá-lo.
+tradução errada sem nenhum aviso.
 
 Funções puras, sem GPU e sem Qt: testáveis com listas sintéticas.
 

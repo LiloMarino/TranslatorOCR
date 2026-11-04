@@ -203,30 +203,25 @@ class TranslationConfig:
 
 
 @dataclass
-class LLMConfig:
-    """Refino por LLM local, só nos blocos que o gate marcou `needs_review`
-    (ver `backends/translate_llm.py`).
+class RefineConfig:
+    """Segunda passada da tradução: o TranslateGemma retraduz cada balão novo com as
+    falas anteriores como contexto (ver `backends/translate_gemma.py`).
 
-    Modelo: Qwen3-4B-Q4_K_M, escolhido por benchmark (`scripts/benchmark_llm.py`)
-    contra o Qwen3-8B — qualidade equivalente em frases reais, mas ~3x mais rápido por
-    bloco e com bem mais folga de VRAM.
-
-    **Desligado por padrão**, medido em 2026-09 em páginas reais de mangá: em página
-    limpa ele nunca aciona (todo bloco passa do gate com confiança >= 0.6) e, forçado a
-    rodar, traduziu pior que o NMT — trocou sentido, errou concordância e repetiu a
-    tradução do bloco anterior. Carregado, só ocupava ~2.5 GB de VRAM.
+    Na comparação às cegas com 89 balões de capturas reais, a tradução com contexto
+    teve 8 erros graves contra 11 do opus-mt, a ~2.6 s por balão contra 0.13 s. Por
+    isso as duas rodam em sequência: o opus-mt aparece na hora, a Gemma substitui.
     """
 
-    enabled: bool = False
-    # -1 = offload total pra GPU. Testado com OCR+detector já carregados: 5.1GB de
-    # pico numa placa de 6GB — reduza se um modelo de detector maior entrar depois.
+    enabled: bool = True
+    # Palavra solta, quase sempre onomatopeia ou nome, fica com o opus-mt: o ganho do
+    # contexto está nas frases.
+    min_words: int = 2
+    # -1 = todas as camadas na GPU. O OCR e a Gemma nunca rodam ao mesmo tempo: os dois
+    # vivem na thread do worker.
     n_gpu_layers: int = -1
-    n_ctx: int = 4096
-    # Quantas traduções anteriores entram como contexto rolante no prompt — ajuda o
-    # LLM a manter consistência de tom/nome entre falas do mesmo balão.
-    context_window: int = 6
-    # JSON simples {"nome original": "tradução"}. None = prompt não inclui glossário.
-    glossary_path: str | None = None
+    # Cabe o histórico inteiro do registro (`LedgerConfig.context_size`) com folga.
+    n_ctx: int = 2048
+    max_tokens: int = 256
 
 
 @dataclass
@@ -287,7 +282,7 @@ class Config:
     scroll: ScrollConfig = field(default_factory=ScrollConfig)
     ledger: LedgerConfig = field(default_factory=LedgerConfig)
     translation: TranslationConfig = field(default_factory=TranslationConfig)
-    llm: LLMConfig = field(default_factory=LLMConfig)
+    refine: RefineConfig = field(default_factory=RefineConfig)
     overlay: OverlayConfig = field(default_factory=OverlayConfig)
     hotkeys: HotkeyConfig = field(default_factory=HotkeyConfig)
     collector: CollectorConfig = field(default_factory=CollectorConfig)

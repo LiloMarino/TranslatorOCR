@@ -1,89 +1,161 @@
-"""`Pipeline.refine` — segunda passada de LLM, só nos blocos `needs_review`.
+"""Segunda passada: a fila de balões, o contexto que cada um recebe e o caminho até a tela.
 
-Sem OCR/captura real: exercita só a lógica de filtro e de merge do refino, com um
-LLM dublê. Garante que o pipeline não manda todo bloco pro LLM (apenas os com
-`needs_review=True`), evitando desperdício de latência, e que `None` não
-sobrescreve a tradução provisória.
+Pipeline e registro de verdade, com OCR, tradutor e refinador dublês. O que importa aqui
+é qual balão vai para a segunda passada, com qual histórico, e que a tradução nova chega
+ao bloco desenhado mesmo depois de outra leitura ter trocado os objetos.
 """
 
 from __future__ import annotations
 
+import numpy as np
+import pytest
+
 from translatorocr.config import Config
+from translatorocr.core.ledger import BlockLedger
 from translatorocr.core.pipeline import Pipeline
-from translatorocr.models import TextBlock
+from translatorocr.models import Capture, Region, TextLine
+
+FIRST = "Where are you going so late?"
+SECOND = "Home, I guess."
+ONE_WORD = "BANG"
 
 
-class FakeLLM:
-    def __init__(self, mapping: dict[str, str | None]) -> None:
-        self.mapping = mapping
-        self.seen: list[str] = []
-
-    def refine(self, blocks: list[TextBlock]) -> list[str | None]:
-        self.seen = [b.source for b in blocks]
-        return [self.mapping.get(b.source) for b in blocks]
+class FakeCapture:
+    def grab(self, region: Region | None = None) -> Capture:
+        return Capture(image=np.zeros((10, 10, 3), dtype=np.uint8), origin=(0, 0))
 
 
-def make_block(source: str, needs_review: bool, translated: str = "provisório") -> TextBlock:
-    return TextBlock(
-        bbox=(0, 0, 10, 10),
-        source=source,
-        confidence=0.5,
-        needs_review=needs_review,
-        translated=translated,
+class FakeOCR:
+    """Uma linha por balão, 300 px entre eles, para o agrupamento não juntar dois."""
+
+    def __init__(self, texts: list[str]) -> None:
+        self.texts = texts
+
+    def read(self, image: np.ndarray) -> list[TextLine]:
+        return [
+            TextLine(bbox=(100, 100 + 300 * i, 500, 130 + 300 * i), text=text, confidence=0.95)
+            for i, text in enumerate(self.texts)
+        ]
+
+
+class EchoTranslator:
+    def translate(self, texts: list[str], source: str, target: str) -> list[str | None]:
+        return [f"nmt:{t}" for t in texts]
+
+
+class FakeRefiner:
+    def __init__(self, answer: str | None = "gemma") -> None:
+        self.answer = answer
+        self.calls: list[tuple[str, list[tuple[str, str]]]] = []
+
+    def translate(self, text: str, history: list[tuple[str, str]]) -> str | None:
+        self.calls.append((text, list(history)))
+        return None if self.answer is None else f"{self.answer}:{text}"
+
+
+@pytest.fixture
+def ledger() -> BlockLedger:
+    config = Config()
+    return BlockLedger(config.ledger, config.scroll)
+
+
+def make(ledger: BlockLedger, texts: list[str], refiner: FakeRefiner | None) -> Pipeline:
+    return Pipeline(
+        Config(),
+        FakeCapture(),  # type: ignore[arg-type]
+        FakeOCR(texts),
+        EchoTranslator(),
+        refiner=refiner,
+        ledger=ledger,
     )
 
 
-def make_pipeline(llm) -> Pipeline:
-    # Só `refine()` é exercitado; capture/ocr/translator não importam aqui.
-    return Pipeline(Config(), capture=None, ocr=None, translator=None, llm=llm)  # type: ignore[arg-type]
+def drain(pipeline: Pipeline) -> list[bool]:
+    results = []
+    while pipeline.refining:
+        results.append(pipeline.refine_next())
+    return results
 
 
-def test_sem_llm_configurado_devolve_vazio():
-    pipeline = make_pipeline(None)
-    blocks = [make_block("a", needs_review=True)]
-    assert pipeline.refine(blocks) == []
+def test_traducao_da_segunda_passada_chega_ao_bloco_desenhado(ledger):
+    pipeline = make(ledger, [FIRST], FakeRefiner())
+    shown = pipeline.run()
+    assert shown[0].translated == f"nmt:{FIRST}"
+
+    assert drain(pipeline) == [True]
+    assert ledger.refresh(shown)
+    assert shown[0].translated == f"gemma:{FIRST}"
 
 
-def test_so_blocos_needs_review_vao_ao_llm():
-    llm = FakeLLM({"texto duvidoso": "corrigido"})
-    pipeline = make_pipeline(llm)
-    blocks = [make_block("ok", needs_review=False), make_block("texto duvidoso", needs_review=True)]
+def test_cada_balao_recebe_os_anteriores_ja_com_a_traducao_da_segunda_passada(ledger):
+    refiner = FakeRefiner()
+    pipeline = make(ledger, [FIRST, SECOND], refiner)
+    pipeline.run()
+    drain(pipeline)
 
-    pipeline.refine(blocks)
-    assert llm.seen == ["texto duvidoso"]
-
-
-def test_bloco_atualizado_aparece_no_resultado():
-    llm = FakeLLM({"texto duvidoso": "corrigido"})
-    pipeline = make_pipeline(llm)
-    block = make_block("texto duvidoso", needs_review=True)
-
-    changed = pipeline.refine([block])
-    assert changed == [block]
-    assert block.translated == "corrigido"
+    assert refiner.calls == [
+        (FIRST, []),
+        (SECOND, [(FIRST, f"gemma:{FIRST}")]),
+    ]
 
 
-def test_none_do_llm_mantem_traducao_provisoria():
-    llm = FakeLLM({"texto duvidoso": None})
-    pipeline = make_pipeline(llm)
-    block = make_block("texto duvidoso", needs_review=True, translated="provisório")
+def test_balao_de_uma_palavra_fica_com_o_opus_mt(ledger):
+    refiner = FakeRefiner()
+    pipeline = make(ledger, [ONE_WORD], refiner)
+    pipeline.run()
 
-    changed = pipeline.refine([block])
-    assert changed == []
-    assert block.translated == "provisório"
-
-
-def test_sem_blocos_needs_review_nao_chama_o_llm():
-    llm = FakeLLM({})
-    pipeline = make_pipeline(llm)
-    pipeline.refine([make_block("a", needs_review=False)])
-    assert llm.seen == []
+    assert not pipeline.refining
+    assert refiner.calls == []
 
 
-def test_bloco_de_uma_palavra_nao_vai_ao_llm():
-    """O LLM pode ecoar a tradução anterior quando não há o que traduzir de verdade
-    (onomatopeia, número de página). É mais barato e mais seguro não chamar."""
-    llm = FakeLLM({"THUD": "não deveria aparecer"})
-    pipeline = make_pipeline(llm)
-    pipeline.refine([make_block("THUD", needs_review=True)])
-    assert llm.seen == []
+def test_balao_relido_nao_volta_para_a_fila(ledger):
+    refiner = FakeRefiner()
+    pipeline = make(ledger, [FIRST], refiner)
+    pipeline.run()
+    drain(pipeline)
+
+    pipeline.run()
+    assert not pipeline.refining
+    assert len(refiner.calls) == 1
+
+
+def test_leitura_no_meio_da_fila_nao_perde_a_traducao_nova(ledger):
+    """A captura que entra entre dois balões troca os blocos desenhados por outros."""
+    pipeline = make(ledger, [FIRST, SECOND], FakeRefiner())
+    pipeline.run()
+    assert pipeline.refine_next()
+
+    shown = pipeline.run()
+    assert [b.translated for b in shown] == [f"gemma:{FIRST}", f"nmt:{SECOND}"]
+
+    assert pipeline.refine_next()
+    assert ledger.refresh(shown)
+    assert [b.translated for b in shown] == [f"gemma:{FIRST}", f"gemma:{SECOND}"]
+
+
+def test_sem_resposta_da_gemma_fica_a_traducao_do_opus_mt(ledger):
+    pipeline = make(ledger, [FIRST], FakeRefiner(answer=None))
+    shown = pipeline.run()
+
+    assert drain(pipeline) == [False]
+    assert not ledger.refresh(shown)
+    assert shown[0].translated == f"nmt:{FIRST}"
+
+
+def test_balao_que_saiu_do_registro_e_pulado(ledger):
+    """Outro capítulo recomeça o registro: o que estava na fila não é mais desta leitura."""
+    refiner = FakeRefiner()
+    pipeline = make(ledger, [FIRST], refiner)
+    ledger.observe_title("capítulo 1")
+    pipeline.run()
+    ledger.observe_title("capítulo 2")
+
+    assert drain(pipeline) == [False]
+    assert refiner.calls == []
+
+
+def test_sem_refinador_nao_ha_fila(ledger):
+    pipeline = make(ledger, [FIRST], None)
+    pipeline.run()
+    assert not pipeline.refining
+    assert not pipeline.refine_next()

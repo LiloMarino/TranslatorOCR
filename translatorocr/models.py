@@ -113,8 +113,8 @@ class TextBlock:
     lines: list[TextLine] = field(default_factory=list)
     translated: str | None = None
     # Marcado pelo gate quando o reconhecimento é duvidoso mas não ruim o bastante
-    # para descartar. O overlay desenha a caixa com borda distinta, e é este o sinal
-    # que o tier de LLM vai consumir para decidir se vale acordá-lo.
+    # para descartar. O overlay desenha a caixa com borda distinta, e o registro de
+    # balões troca a leitura duvidosa por uma limpa quando o balão é relido.
     needs_review: bool = False
 
     @property

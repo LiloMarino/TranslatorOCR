@@ -1,21 +1,25 @@
 """Orquestra os estágios. Sem nenhum import de Qt — o núcleo não conhece a UI.
 
 capturar → upscale → OCR → agrupar → converter coordenadas → gate → traduzir
+
+e, fora desse caminho, a segunda passada: `refine_next` retraduz um balão por vez com
+as falas anteriores como contexto (ver `backends/translate_gemma.py`).
 """
 
 from __future__ import annotations
 
 import logging
 import time
+from collections import deque
 from pathlib import Path
 
 import cv2
 
-from ..backends.base import CaptureBackend, LLMBackend, OCRBackend, TranslatorBackend
+from ..backends.base import CaptureBackend, OCRBackend, RefinerBackend, TranslatorBackend
 from ..config import Config
 from ..models import Capture, Region, TextBlock
 from .collector import CaptureCollector
-from .ledger import BlockLedger, Reading
+from .ledger import BlockLedger, Entry, Reading
 
 log = logging.getLogger(__name__)
 
@@ -27,7 +31,7 @@ class Pipeline:
         capture: CaptureBackend,
         ocr: OCRBackend,
         translator: TranslatorBackend,
-        llm: LLMBackend | None = None,
+        refiner: RefinerBackend | None = None,
         ledger: BlockLedger | None = None,
         collector: CaptureCollector | None = None,
     ) -> None:
@@ -35,9 +39,13 @@ class Pipeline:
         self._capture = capture
         self._ocr = ocr
         self._translator = translator
-        self._llm = llm
+        self._refiner = refiner
         self._ledger = ledger
         self._collector = collector
+        # Balões à espera da segunda passada, em ordem de leitura. A fila guarda a
+        # entrada do registro, e não o bloco: o bloco muda de posição na GUI e é
+        # trocado por outro a cada leitura, a entrada é o que dura.
+        self._refine_queue: deque[Entry] = deque()
 
     def _collect(
         self,
@@ -146,7 +154,7 @@ class Pipeline:
             for block, translated in zip(pending, translations, strict=True):
                 block.translated = translated
             if self._ledger and reading:
-                self._ledger.record(reading, pending)
+                self._queue_refine(self._ledger.record(reading, pending))
         t_translate = time.perf_counter()
         self._collect(shot, blocks, pending, reading)
 
@@ -166,34 +174,45 @@ class Pipeline:
             self._dump(shot, blocks)
         return blocks
 
-    def refine(self, blocks: list[TextBlock]) -> list[TextBlock]:
-        """Segunda passada: corrige OCR + traduz de novo só os blocos duvidosos.
+    def _queue_refine(self, entries: list[Entry]) -> None:
+        if self._refiner is None:
+            return
+        for entry in entries:
+            words = len(entry.source.split())
+            queued = any(e is entry for e in self._refine_queue)
+            if words >= self._cfg.refine.min_words and not queued:
+                self._refine_queue.append(entry)
 
-        Chamado à parte de `run()`, depois que a tradução rápida (NMT) já foi
-        mostrada — fica fora do caminho crítico de latência. Devolve só os blocos que
-        de fato mudaram, para o chamador atualizar o overlay in-place sem tocar no
-        resto.
+    @property
+    def refining(self) -> bool:
+        """Há balão esperando a segunda passada."""
+        return bool(self._refine_queue)
+
+    def refine_next(self) -> bool:
+        """Retraduz o próximo balão da fila com as falas anteriores como contexto.
+
+        Um balão por chamada, para quem chama poder intercalar uma captura entre um e
+        outro. A tradução nova vai para o registro, de onde a tela a busca
+        (`BlockLedger.refresh`). Devolve se ela mudou.
         """
-        if self._llm is None:
-            return []
-        # Blocos de uma palavra só (onomatopeia, número de página) não têm contexto
-        # suficiente para correção confiável de LLM — melhor deixar a tradução rápida
-        # que já funciona bem. Blocos maiores ganham da passada de refino.
-        pending = [b for b in blocks if b.needs_review and len(b.source.split()) > 1]
-        if not pending:
-            return []
-
-        started = time.perf_counter()
-        refined = self._llm.refine(pending)
-        changed = []
-        for block, text in zip(pending, refined, strict=True):
-            if text:
-                block.translated = text
-                changed.append(block)
-        log.info(
-            "refino LLM: %d/%d blocos atualizados em %.2fs",
-            len(changed),
-            len(pending),
-            time.perf_counter() - started,
-        )
-        return changed
+        if self._refiner is None or self._ledger is None:
+            return False
+        while self._refine_queue:
+            entry = self._refine_queue.popleft()
+            history = self._ledger.history(entry)
+            if history is None:
+                continue
+            started = time.perf_counter()
+            pairs = [(e.source, e.translated) for e in history if e.translated]
+            text = self._refiner.translate(entry.source, pairs)
+            log.info(
+                "segunda passada: 1 balão em %.2fs, %d de contexto, %d na fila",
+                time.perf_counter() - started,
+                len(pairs),
+                len(self._refine_queue),
+            )
+            if not text or text == entry.translated:
+                return False
+            self._ledger.revise(entry, text)
+            return True
+        return False
