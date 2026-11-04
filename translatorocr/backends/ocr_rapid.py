@@ -46,6 +46,10 @@ def _build_params(cfg: OCRConfig) -> dict:
     det_lang, rec_lang = LangDet.CH, LangRec(cfg.lang)
 
     return {
+        # Texto de mangá chega sempre de pé. O classificador de ângulo só tem a ganhar
+        # com linha de cabeça para baixo, e com linha curta ou com "?!" ele erra o
+        # palpite e desvira o que estava certo (ver A22).
+        "Global.use_cls": False,
         "EngineConfig.onnxruntime.use_cuda": cfg.use_gpu,
         "Global.max_side_len": cfg.max_side_len,
         "Global.text_score": cfg.text_score,
