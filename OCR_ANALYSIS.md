@@ -4,7 +4,7 @@
 >
 > **Legenda:** `A#` achado de leitura de código/medição · `P#` problema relatado · `I#` ideia pesada como candidata · `S#` síntese causal.
 >
-> **Última mudança (2026-11-04):** o gabarito ganhou a régua `eval_captures.py` com a linha de base do app (I6), e o modelo `server` do RapidOCR foi medido contra ela e descartado (I7).
+> **Última mudança (2026-11-04):** a régua do gabarito achou o classificador de ângulo desvirando linha curta (A22); desligado, os balões foram a 210 de 210 exatos, e S1, I7 (modelo `server`) e I8 (comic-text-detector) foram descartados pela medição.
 
 ## Contexto e escopo
 
@@ -96,6 +96,10 @@ O endpoint gratuito do Google bloqueava por rate limit, e cada rodada esgotava a
 `backends/translate_gemma.py`, `core/pipeline.py` (fila de refino). Medido: 2.6 s por balão no A/B, 33.5 s para 19 balões no `benchmark_llm.py` (~1.8 s cada) e 0.4 a 0.7 s por balão no app, contra 0.13 s do opus-mt. A fila é FIFO e processa um balão por volta do laço do worker: rolando rápido, ela ainda refina balões que já saíram da tela enquanto os novos esperam. Ao carregar, o llama.cpp avisa que a GTX 1660 SUPER não tem tensor cores e que o caminho de kernel compilado é o subótimo; o build já é CUDA (`llama_supports_gpu_offload()` verdadeiro, llama-cpp-python 0.3.35).
 ⚠️ **Confirmado pela medição. O atraso aparece só ao rolar rápido; parado, a fila esvazia em segundos.**
 
+**A22 — O classificador de ângulo do RapidOCR desvirava linha curta que estava certa**
+`backends/ocr_rapid.py:_build_params`. O RapidOCR liga por padrão um classificador que decide se cada recorte de linha está de cabeça para baixo e, se achar que está, gira 180° antes de ler. Em linha curta, ou com "?!" no começo ou no fim, ele errava o palpite: a interjeição saía como as mesmas letras de trás para frente e de ponta-cabeça, e uma palavra de duas letras virava símbolo. Era a maior fonte de erro em balão de fala. Medido com `scripts/eval_captures.py` em 199 telas: desligado, os balões foram de 192 para 210 exatos de 210 (21 regiões ganhas, nenhuma perdida) e o texto solto de 11 para 14 de 31. Nas páginas curadas (`eval_pages.py`, 3 páginas em 33 vistas), as vistas com falha foram de 8 para 0. Texto de mangá chega sempre de pé, então o classificador não tinha nada a ganhar.
+✅ **Resolvido — `Global.use_cls` desligado em `_build_params`.**
+
 **A17 — Seis comandos em teclas de função globais, uma por comando**
 `config.py:HotkeyConfig`, `__main__.py` (lista `commands`). Seis teclas de função registradas com `RegisterHotKey`, que consome a tecla no sistema inteiro: o navegador com a página em foco perdia a barra de endereço e a tela cheia.
 ✅ **Resolvido via I11 — três teclas, F8, F9 e F4, que o navegador não usa para nada que a leitura precise.**
@@ -157,7 +161,7 @@ Descartada pela medição: o PP-OCRv5 só tem `server` em chinês, o reconhecedo
 
 **I8. Detector de linha treinado em mangá no lugar do DBNet** *(origem: própria)*
 O `comic-text-detector` ocuparia o estágio que falha em A2, A3 e A9. Se achar os balões curtos, a segunda passada em mosaico deixa de ser necessária. A diferença para I1 é que o alvo é o detector de linha, não o reconhecedor.
-Endossada como experimento. Em avaliação — ver ROADMAP.
+Descartada pela medição: não acha os balões de uma palavra só, que era a condição, e no melhor ajuste só empatou com o DBNet. O que ele ganhava vinha de não passar pelo classificador de ângulo, e esse ganho virou A22. Números no ROADMAP.
 
 **I9. Google gratuito como tradutor principal** *(origem: própria)*
 Inverter a ordem dos tiers para `["cloud", "nmt"]`: a nuvem traduz e o opus-mt fica de reserva offline.
@@ -201,7 +205,9 @@ A queixa de P1 ("o OCR não dá conta") aponta naturalmente para o reconhecedor,
 
 A segunda passada em mosaico existe justamente para cobrir A2, e funciona em resolução nativa. O que a torna não confiável em página reduzida é A3: como todos os recortes suspeitos vão para a mesma imagem e o DBNet dimensiona pelo lado menor dela, a ampliação que cada recorte recebe depende de quem mais está no mosaico. Isso explica a característica mais incômoda de P1 — a inconsistência. Não é que um balão seja difícil; é que a leitura dele muda conforme os *outros* balões suspeitos daquele quadro. A4 fecha o ciclo: quando o mosaico devolve uma leitura confiante e errada, ela ganha da primeira leitura correta.
 
-**Correção candidata:** desacoplar a ampliação de cada recorte da geometria do mosaico, e arbitrar entre as duas leituras por algo melhor que a confiança do reconhecedor. Duas tentativas foram medidas e revertidas (igualar as larguras dos recortes; fixar a largura do mosaico em 736), e uma terceira (reconhecer cada região suspeita numa chamada isolada) recupera casos que falhavam mas devolve leitura vazia em outros. Mecanismo ainda em aberto, à espera do gabarito (I5, I6) e do teste do detector de linha treinado em mangá (I8): se ele achar os balões curtos, o estágio que falha deixa de existir e esta síntese é descartada.
+**Correção candidata:** desacoplar a ampliação de cada recorte da geometria do mosaico, e arbitrar entre as duas leituras por algo melhor que a confiança do reconhecedor. Duas tentativas foram medidas e revertidas (igualar as larguras dos recortes; fixar a largura do mosaico em 736), e uma terceira (reconhecer cada região suspeita numa chamada isolada) recupera casos que falhavam mas devolve leitura vazia em outros. 
+
+**Desfecho:** descartada por falta do que corrigir. As falhas que sustentavam esta cadeia foram medidas com o classificador de ângulo ligado, e parte do "letra trocada" era ele (A22). Desligado, as páginas curadas foram de 8 para 0 vistas com falha e o gabarito das capturas (I6) para 210 de 210 balões exatos. O acoplamento de A3 continua no código, mas não produz falha medida em nenhuma das duas réguas. Reabre se aparecer falha atribuível ao mosaico. O mosaico em si fica: sem ele, uma vista curada passa a ter um bloco de lixo.
 
 ### S2 — A instabilidade era invisível porque a medição não cobrava o caso em que ela aparece
 
